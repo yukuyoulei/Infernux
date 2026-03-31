@@ -10,10 +10,6 @@ Key code constants for keyboard input.
 
 <!-- USER CONTENT START --> description
 
-KeyCode defines integer constants for every keyboard key and mouse button. Pass these values to [Input](Input.md) methods such as `Input.get_key()`, `Input.get_key_down()`, and `Input.get_key_up()` to query specific key states.
-
-Common groups include letter keys (`A`–`Z`), digit keys (`ALPHA0`–`ALPHA9`), function keys (`F1`–`F12`), arrow keys, modifier keys (Shift, Control, Alt), and numpad keys.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -133,42 +129,12 @@ Common groups include letter keys (`A`–`Z`), digit keys (`ALPHA0`–`ALPHA9`),
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.input import Input, KeyCode
-from Infernux.math import vector3
-
-class KeyCodeDemo(InxComponent):
-    def update(self):
-        # WASD movement
-        move = vector3.zero
-        if Input.get_key(KeyCode.W):
-            move += vector3.forward
-        if Input.get_key(KeyCode.S):
-            move -= vector3.forward
-        if Input.get_key(KeyCode.A):
-            move -= vector3.right
-        if Input.get_key(KeyCode.D):
-            move += vector3.right
-        self.transform.translate(move * 5.0 * self.time.delta_time)
-
-        # Action keys
-        if Input.get_key_down(KeyCode.SPACE):
-            Debug.log("Jump")
-        if Input.get_key_down(KeyCode.ESCAPE):
-            Debug.log("Pause")
-
-        # Number keys for item selection
-        for i in range(10):
-            code = getattr(KeyCode, f"ALPHA{i}")
-            if Input.get_key_down(code):
-                Debug.log(f"Selected slot {i}")
+# TODO: Add example for KeyCode
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Input](Input.md) — reads key states using KeyCode values
 
 <!-- USER CONTENT END -->

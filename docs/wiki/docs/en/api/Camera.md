@@ -12,12 +12,6 @@ A Camera component that renders a view of the scene.
 
 <!-- USER CONTENT START --> description
 
-Camera is the component that renders a view of the scene to the screen. It operates in either perspective mode (realistic 3D depth) or orthographic mode (no depth foreshortening, suitable for 2D or technical views). Field of view, near and far clipping planes, and viewport rectangle control what geometry is visible.
-
-When multiple cameras exist, the `depth` property determines rendering order — cameras with lower depth render first, enabling layered effects such as a gameplay camera beneath a UI overlay camera. Use coordinate conversion methods like `screen_to_world_point()` and `screen_point_to_ray()` to translate between screen pixels and 3D world positions for picking and interaction.
-
-For advanced rendering, read the `view_matrix` and `projection_matrix` properties directly or modify clear flags and background color to control how the frame buffer is prepared before drawing.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -69,37 +63,12 @@ For advanced rendering, read the `view_matrix` and `projection_matrix` propertie
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent, serialized_field
-
-class CameraSetup(InxComponent):
-    def start(self):
-        cam = self.game_object.get_cpp_component("Camera")
-        if not cam:
-            return
-
-        # Configure a perspective camera
-        cam.field_of_view = 60.0
-        cam.near_clip = 0.3
-        cam.far_clip = 500.0
-        cam.depth = 0  # renders first
-
-    def update(self, delta_time: float):
-        cam = self.game_object.get_cpp_component("Camera")
-
-        # Convert screen center to a world-space ray
-        ray = cam.screen_point_to_ray(960.0, 540.0)
-        if ray:
-            origin, direction = ray
+# TODO: Add example for Camera
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [GameObject](GameObject.md)
-- [Transform](Transform.md)
-- [Light](Light.md)
-- [MeshRenderer](MeshRenderer.md)
 
 <!-- USER CONTENT END -->

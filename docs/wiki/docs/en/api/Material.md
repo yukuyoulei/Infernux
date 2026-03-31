@@ -10,12 +10,6 @@ Pythonic wrapper around C++ InxMaterial.
 
 <!-- USER CONTENT START --> description
 
-Material defines the visual appearance of rendered geometry, controlling shading, color, textures, and render state. Each Material references a [Shader](Shader.md) program and provides a set of properties (uniforms) that feed into that shader.
-
-Create materials with the factory methods `Material.create_lit()` for physically-based rendering or `Material.create_unlit()` for flat shading with no lighting calculations. Set uniform values through typed methods: `set_color()` for RGBA colors, `set_float()` for numeric parameters, `set_texture_guid()` for texture maps, and `set_vector3()` / `set_vector4()` for vector values.
-
-Render state — such as culling mode, blend mode, depth testing, and surface type — is configured through dedicated properties. Materials are assigned to a [MeshRenderer](MeshRenderer.md) to take effect.
-
 <!-- USER CONTENT END -->
 
 ## Constructors
@@ -119,35 +113,12 @@ Render state — such as culling mode, blend mode, depth testing, and surface ty
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.resources import Material
-
-class MaterialDemo(InxComponent):
-    def start(self):
-        # Create a lit (PBR) material
-        mat = Material.create_lit()
-        mat.set_color("_BaseColor", 1.0, 0.3, 0.3, 1.0)  # red tint
-        mat.set_float("_Metallic", 0.0)
-        mat.set_float("_Roughness", 0.4)
-
-        # Apply to the renderer
-        renderer = self.game_object.get_cpp_component("MeshRenderer")
-        if renderer:
-            renderer.render_material = mat
-
-        # Create an unlit material for UI-like elements
-        unlit = Material.create_unlit()
-        unlit.set_color("_BaseColor", 0.0, 1.0, 0.0, 1.0)
+# TODO: Add example for Material
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Shader](Shader.md)
-- [Texture](Texture.md)
-- [MeshRenderer](MeshRenderer.md)
-- [Light](Light.md)
 
 <!-- USER CONTENT END -->

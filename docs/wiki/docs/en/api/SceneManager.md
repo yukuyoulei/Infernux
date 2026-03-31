@@ -10,12 +10,6 @@ Manages scene loading, unloading, and queries.
 
 <!-- USER CONTENT START --> description
 
-SceneManager provides static methods for loading, unloading, and querying scenes at runtime. It is the central point for scene lifecycle management in Infernux.
-
-Use `get_active_scene()` to obtain the currently active [Scene](Scene.md). Call `load_scene()` to load a scene by file path, and `get_scene_count()` or `get_scene_at()` to enumerate loaded scenes. Scene loading replaces the current scene hierarchy, so save any persistent data before switching.
-
-SceneManager is a static utility class — you never instantiate it. All methods are called directly on the class, such as `SceneManager.get_active_scene()`.
-
 <!-- USER CONTENT END -->
 
 ## Static Methods
@@ -42,31 +36,12 @@ SceneManager is a static utility class — you never instantiate it. All methods
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent, SceneManager
-
-class LevelLoader(InxComponent):
-    def start(self):
-        # Get the active scene
-        active = SceneManager.get_active_scene()
-        print(f"Current scene: {active.name}")
-
-        # Check how many scenes are loaded
-        count = SceneManager.get_scene_count()
-        for i in range(count):
-            scene = SceneManager.get_scene_at(i)
-            print(f"Scene {i}: {scene.name}")
-
-    def load_next_level(self):
-        # Load a new scene by path
-        SceneManager.load_scene("scenes/level_02.scene")
+# TODO: Add example for SceneManager
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Scene](Scene.md)
-- [GameObject](GameObject.md)
 
 <!-- USER CONTENT END -->

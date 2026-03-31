@@ -12,12 +12,6 @@ A Light component that illuminates the scene.
 
 <!-- USER CONTENT START --> description
 
-Light illuminates the scene, affecting how [Materials](Material.md) and [MeshRenderers](MeshRenderer.md) appear. Infernux supports three light types: directional lights (type 0) for sun-like parallel rays, point lights (type 1) that emit in all directions from a position, and spot lights (type 2) that emit in a cone.
-
-Key properties include `color` and `intensity` for brightness, `range` for point and spot falloff distance, and `spot_angle` for the cone width of spot lights. Shadows can be toggled per light via the `shadows` property — set it to enable shadow mapping for that light source.
-
-A scene typically has one directional light as the main sunlight, supplemented by point and spot lights for localized illumination. Adjust `shadow_strength` and `shadow_bias` to fine-tune shadow quality and reduce artifacts.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -64,34 +58,12 @@ A scene typically has one directional light as the main sunlight, supplemented b
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.math import vector3, vector4
-
-class LightSetup(InxComponent):
-    def start(self):
-        light = self.game_object.get_cpp_component("Light")
-        if not light:
-            light = self.game_object.add_component("Light")
-
-        # Configure as a directional sunlight
-        light.light_type = 0  # directional
-        light.color = vector4(1.0, 0.95, 0.8, 1.0)  # warm white
-        light.intensity = 1.2
-        light.shadows = 1  # enable shadows
-        light.shadow_strength = 0.8
-
-        # Point the light downward at an angle
-        self.transform.rotate(vector3(50, -30, 0))
+# TODO: Add example for Light
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Camera](Camera.md)
-- [Material](Material.md)
-- [MeshRenderer](MeshRenderer.md)
-- [GameObject](GameObject.md)
 
 <!-- USER CONTENT END -->

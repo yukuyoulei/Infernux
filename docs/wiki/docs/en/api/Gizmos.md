@@ -10,10 +10,6 @@ Draw visual debugging helpers in the Scene view.
 
 <!-- USER CONTENT START --> description
 
-Gizmos draws visual debugging aids in the Scene view. Use Gizmos inside the `on_draw_gizmos()` or `on_draw_gizmos_selected()` lifecycle methods of [InxComponent](InxComponent.md) to visualize boundaries, directions, and spatial relationships.
-
-Set `Gizmos.color` before drawing to control the color of subsequent shapes. Available primitives include lines, rays, wire cubes, wire spheres, arcs, and camera frustums.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -47,40 +43,12 @@ Set `Gizmos.color` before drawing to control the color of subsequent shapes. Ava
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.gizmos import Gizmos
-from Infernux.math import vector3
-
-class GizmosDemo(InxComponent):
-    attack_range: float = 5.0
-
-    def on_draw_gizmos_selected(self):
-        pos = self.transform.position
-
-        # Red wire sphere for attack range
-        Gizmos.color = (1, 0, 0)
-        Gizmos.draw_wire_sphere(pos, self.attack_range)
-
-        # Green ray showing forward direction
-        Gizmos.color = (0, 1, 0)
-        Gizmos.draw_ray(pos, self.transform.forward * 3)
-
-        # Blue wire cube as a waypoint marker
-        Gizmos.color = (0, 0, 1)
-        Gizmos.draw_wire_cube(pos + vector3(0, 2, 0), vector3(1, 1, 1))
-
-    def on_draw_gizmos(self):
-        # Always-visible line between origin and this object
-        Gizmos.color = (1, 1, 0)
-        Gizmos.draw_line(vector3.zero, self.transform.position)
+# TODO: Add example for Gizmos
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Debug](Debug.md) — console logging
-- [InxComponent](InxComponent.md) — `on_draw_gizmos()` and `on_draw_gizmos_selected()` lifecycle methods
 
 <!-- USER CONTENT END -->

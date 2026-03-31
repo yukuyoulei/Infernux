@@ -448,8 +448,6 @@
 <p>四维向量，包含 x、y、z 和 w 分量。</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>vector4 表示四分量向量。常见用途包括 RGBA 颜色（红、绿、蓝、透明度）、齐次 3D 坐标以及向着色器传递多分量值。</p>
-<p>与 vector2 和 vector3 一样，所有方法都是静态的，操作 <code>vec4f</code> 值。算术运算符按分量运算，<code>lerp()</code>、<code>dot()</code> 和 <code>normalize()</code> 等工具方法与低维版本行为一致。</p>
 <!-- USER CONTENT END -->
 
 <h2 id="_2">属性<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
@@ -558,36 +556,13 @@
 <h2 id="_4">示例<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.math</span><span class="w"> </span><span class="kn">import</span> <span class="n">vector4</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># RGBA 颜色</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">red</span>   <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">green</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># 在颜色之间插值实现渐变效果</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">half</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">lerp</span><span class="p">(</span><span class="n">red</span><span class="p">,</span> <span class="n">green</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>   <span class="c1"># (0.5, 0.5, 0, 1)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># 长度与归一化</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">v</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">length</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">magnitude</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">unit</span>   <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># 按分量取最小值 / 最大值</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">a</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">b</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="n">lo</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>   <span class="c1"># (1, 1, 2, 2)</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">hi</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>   <span class="c1"># (3, 5, 4, 6)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for vector4</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="_5">另请参阅<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="vector2.html">vector2</a> — 二维向量运算</li>
-<li><a href="vector3.html">vector3</a> — 三维向量运算</li>
-<li><a href="Material.html">Material</a> — 使用 vector4 传递着色器参数</li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

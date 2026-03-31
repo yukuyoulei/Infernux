@@ -10,10 +10,6 @@
 
 <!-- USER CONTENT START --> description
 
-KeyCode 定义了每个键盘按键和鼠标按钮的整数常量。将这些值传递给 [Input](Input.md) 的 `Input.get_key()`、`Input.get_key_down()` 和 `Input.get_key_up()` 方法来查询特定按键状态。
-
-常用分组包括字母键（`A`–`Z`）、数字键（`ALPHA0`–`ALPHA9`）、功能键（`F1`–`F12`）、方向键、修饰键（Shift、Control、Alt）和小键盘按键。
-
 <!-- USER CONTENT END -->
 
 ## 属性
@@ -133,42 +129,12 @@ KeyCode 定义了每个键盘按键和鼠标按钮的整数常量。将这些值
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.input import Input, KeyCode
-from Infernux.math import vector3
-
-class KeyCodeDemo(InxComponent):
-    def update(self):
-        # WASD 移动
-        move = vector3.zero
-        if Input.get_key(KeyCode.W):
-            move += vector3.forward
-        if Input.get_key(KeyCode.S):
-            move -= vector3.forward
-        if Input.get_key(KeyCode.A):
-            move -= vector3.right
-        if Input.get_key(KeyCode.D):
-            move += vector3.right
-        self.transform.translate(move * 5.0 * self.time.delta_time)
-
-        # 动作按键
-        if Input.get_key_down(KeyCode.SPACE):
-            Debug.log("跳跃")
-        if Input.get_key_down(KeyCode.ESCAPE):
-            Debug.log("暂停")
-
-        # 数字键选择物品栏
-        for i in range(10):
-            code = getattr(KeyCode, f"ALPHA{i}")
-            if Input.get_key_down(code):
-                Debug.log(f"选择了槽位 {i}")
+# TODO: Add example for KeyCode
 ```
 <!-- USER CONTENT END -->
 
 ## 另请参阅
 
 <!-- USER CONTENT START --> see_also
-
-- [Input](Input.md) — 使用 KeyCode 值读取按键状态
 
 <!-- USER CONTENT END -->

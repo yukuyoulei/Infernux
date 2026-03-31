@@ -12,12 +12,6 @@
 
 <!-- USER CONTENT START --> description
 
-Light 用于照亮场景，影响 [Material](Material.md) 和 [MeshRenderer](MeshRenderer.md) 的显示效果。Infernux 支持三种灯光类型：平行光（类型 0）用于类似太阳的平行光线，点光源（类型 1）从一个位置向所有方向发射光线，聚光灯（类型 2）在锥形范围内发射光线。
-
-主要属性包括控制亮度的 `color` 和 `intensity`，控制点光源和聚光灯衰减距离的 `range`，以及控制聚光灯锥形宽度的 `spot_angle`。每个灯光都可以通过 `shadows` 属性切换阴影——启用后将为该光源生成阴影贴图。
-
-场景通常使用一个平行光作为主日光，再辅以点光源和聚光灯进行局部照明。调整 `shadow_strength` 和 `shadow_bias` 可微调阴影质量并减少伪影。
-
 <!-- USER CONTENT END -->
 
 ## 属性
@@ -64,34 +58,12 @@ Light 用于照亮场景，影响 [Material](Material.md) 和 [MeshRenderer](Mes
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.math import vector3, vector4
-
-class LightSetup(InxComponent):
-    def start(self):
-        light = self.game_object.get_cpp_component("Light")
-        if not light:
-            light = self.game_object.add_component("Light")
-
-        # 配置为平行光（太阳光）
-        light.light_type = 0  # 平行光
-        light.color = vector4(1.0, 0.95, 0.8, 1.0)  # 暖白色
-        light.intensity = 1.2
-        light.shadows = 1  # 启用阴影
-        light.shadow_strength = 0.8
-
-        # 将灯光向下倾斜一定角度
-        self.transform.rotate(vector3(50, -30, 0))
+# TODO: Add example for Light
 ```
 <!-- USER CONTENT END -->
 
 ## 另请参阅
 
 <!-- USER CONTENT START --> see_also
-
-- [Camera 摄像机](Camera.md)
-- [Material 材质](Material.md)
-- [MeshRenderer 网格渲染器](MeshRenderer.md)
-- [GameObject](GameObject.md)
 
 <!-- USER CONTENT END -->

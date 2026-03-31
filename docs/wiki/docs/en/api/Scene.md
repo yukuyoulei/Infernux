@@ -10,12 +10,6 @@ A single scene containing GameObjects.
 
 <!-- USER CONTENT START --> description
 
-Scene represents a single runtime scene in the engine, containing a hierarchy of [GameObjects](GameObject.md). Every object exists within a Scene, and a Scene provides methods to create, find, and enumerate those objects.
-
-Use `create_game_object()` to instantiate new objects in the scene, `find()` to locate an object by name, and `find_with_tag()` to search by tag. The `get_root_game_objects()` method returns only the top-level objects (those without a parent), which is useful for iterating the full hierarchy.
-
-Scenes are loaded and unloaded through the [SceneManager](SceneManager.md). The currently active Scene determines where newly created objects are placed by default.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -77,38 +71,12 @@ Scenes are loaded and unloaded through the [SceneManager](SceneManager.md). The 
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.math import vector3
-
-class SceneSetup(InxComponent):
-    def start(self):
-        scene = self.game_object.scene
-
-        # Create new objects in the scene
-        ground = scene.create_game_object("Ground")
-        ground.transform.position = vector3(0, -0.5, 0)
-
-        # Find an existing object by name
-        player = scene.find("Player")
-        if player:
-            print(f"Found: {player.name}")
-
-        # Find objects by tag
-        enemy = scene.find_with_tag("Enemy")
-
-        # Iterate all root-level objects
-        roots = scene.get_root_game_objects()
-        for obj in roots:
-            print(f"Root: {obj.name}")
+# TODO: Add example for Scene
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [SceneManager](SceneManager.md)
-- [GameObject](GameObject.md)
-- [Transform](Transform.md)
 
 <!-- USER CONTENT END -->

@@ -10,10 +10,6 @@ A representation of 4D vectors.
 
 <!-- USER CONTENT START --> description
 
-vector4 represents a four-component vector. Common uses include RGBA colors (red, green, blue, alpha), homogeneous 3D coordinates, and passing multi-component values to shaders.
-
-Like vector2 and vector3, all methods are static and operate on `vec4f` values. Arithmetic operators work component-wise, and utility methods such as `lerp()`, `dot()`, and `normalize()` behave identically to their lower-dimension counterparts.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -55,34 +51,12 @@ Like vector2 and vector3, all methods are static and operate on `vec4f` values. 
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux.math import vector4
-
-# RGBA colors
-red   = vector4(1, 0, 0, 1)
-green = vector4(0, 1, 0, 1)
-
-# Lerp between colors for a fade effect
-half = vector4.lerp(red, green, 0.5)   # (0.5, 0.5, 0, 1)
-
-# Magnitude and normalization
-v = vector4(1, 2, 3, 4)
-length = vector4.magnitude(v)
-unit   = vector4.normalize(v)
-
-# Component-wise min / max
-a = vector4(3, 1, 4, 2)
-b = vector4(1, 5, 2, 6)
-lo = vector4.min(a, b)   # (1, 1, 2, 2)
-hi = vector4.max(a, b)   # (3, 5, 4, 6)
+# TODO: Add example for vector4
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [vector2](vector2.md) — 2D vector operations
-- [vector3](vector3.md) — 3D vector operations
-- [Material](Material.md) — uses vector4 for shader parameters
 
 <!-- USER CONTENT END -->

@@ -19,25 +19,12 @@ Example::
 
 <!-- USER CONTENT START --> description
 
-Ensures that required component types are automatically added when this component is attached to a GameObject. If the required components are not already present, the engine adds them.
-
-This prevents runtime errors caused by missing dependencies and is equivalent to Unity's `[RequireComponent]` attribute.
-
 <!-- USER CONTENT END -->
 
 ## Example
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.components import require_component
-from Infernux.rendering import MeshRenderer
-
-@require_component(MeshRenderer)
-class HealthBar(InxComponent):
-    """Requires a MeshRenderer — one is added automatically if missing."""
-    def start(self):
-        renderer = self.get_component(MeshRenderer)
-        renderer.material.set_color("_Color", (0, 1, 0))
+# TODO: Add example for require_component
 ```
 <!-- USER CONTENT END -->

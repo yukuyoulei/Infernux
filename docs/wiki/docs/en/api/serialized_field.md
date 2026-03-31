@@ -40,10 +40,6 @@ Example::
 
 <!-- USER CONTENT START --> description
 
-`serialized_field` marks a class attribute as serialized and visible in the Inspector. It is the primary way to expose component data for editing in the Infernux editor and for scene/prefab serialization.
-
-Supported field types include numbers (`int`, `float`), strings, booleans, vectors, colors, enums, GameObjects, Components, and lists. Each field can be customized with tooltips, ranges, headers, groups, and visibility callbacks.
-
 <!-- USER CONTENT END -->
 
 ## Parameters
@@ -74,27 +70,6 @@ Supported field types include numbers (`int`, `float`), strings, booleans, vecto
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.components import serialized_field
-
-class Enemy(InxComponent):
-    # Basic numeric fields with Inspector hints
-    health: float = serialized_field(default=100.0, range=(0, 500),
-                                      tooltip="Maximum hit points")
-    speed: float = serialized_field(default=3.0, range=(0, 20), slider=True)
-
-    # String with header and multiline
-    description: str = serialized_field(default="", header="Info",
-                                         multiline=True)
-
-    # Read-only status shown in Inspector
-    is_alive: bool = serialized_field(default=True, readonly=True)
-
-    # Grouped fields with conditional visibility
-    use_patrol: bool = serialized_field(default=False, group="AI")
-    patrol_radius: float = serialized_field(
-        default=10.0, group="AI",
-        visible_when=lambda self: self.use_patrol
-    )
+# TODO: Add example for serialized_field
 ```
 <!-- USER CONTENT END -->

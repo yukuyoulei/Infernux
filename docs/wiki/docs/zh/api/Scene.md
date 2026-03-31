@@ -10,12 +10,6 @@
 
 <!-- USER CONTENT START --> description
 
-Scene 代表引擎中的一个运行时场景，包含 [GameObject](GameObject.md) 的层级结构。每个对象都存在于某个场景中，场景提供创建、查找和枚举对象的方法。
-
-使用 `create_game_object()` 在场景中实例化新对象，使用 `find()` 根据名称定位对象，使用 `find_with_tag()` 根据标签搜索。`get_root_game_objects()` 方法仅返回顶层对象（即没有父级的对象），适合遍历整个层级结构。
-
-场景的加载和卸载通过 [SceneManager](SceneManager.md) 完成。当前活动场景决定了新创建对象的默认放置位置。
-
 <!-- USER CONTENT END -->
 
 ## 属性
@@ -77,38 +71,12 @@ Scene 代表引擎中的一个运行时场景，包含 [GameObject](GameObject.m
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.math import vector3
-
-class SceneSetup(InxComponent):
-    def start(self):
-        scene = self.game_object.scene
-
-        # 在场景中创建新对象
-        ground = scene.create_game_object("Ground")
-        ground.transform.position = vector3(0, -0.5, 0)
-
-        # 根据名称查找已有对象
-        player = scene.find("Player")
-        if player:
-            print(f"已找到：{player.name}")
-
-        # 根据标签查找对象
-        enemy = scene.find_with_tag("Enemy")
-
-        # 遍历所有根级对象
-        roots = scene.get_root_game_objects()
-        for obj in roots:
-            print(f"根对象：{obj.name}")
+# TODO: Add example for Scene
 ```
 <!-- USER CONTENT END -->
 
 ## 另请参阅
 
 <!-- USER CONTENT START --> see_also
-
-- [SceneManager 场景管理器](SceneManager.md)
-- [GameObject](GameObject.md)
-- [Transform](Transform.md)
 
 <!-- USER CONTENT END -->

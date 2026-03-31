@@ -10,12 +10,6 @@ Interface for reading input from keyboard, mouse, and touch.
 
 <!-- USER CONTENT START --> description
 
-Input provides a static interface for reading player input each frame. It supports keyboard keys, mouse buttons, scroll wheel, and virtual axes.
-
-Use `get_key()` for continuous held-key checks (e.g., moving while a key is held), `get_key_down()` for single-frame press detection (e.g., jumping), and `get_key_up()` for release detection. Mouse state is queried with `get_mouse_button()` and its `_down` / `_up` variants.
-
-Virtual axes `"Horizontal"` and `"Vertical"` map to WASD / arrow keys by default. `get_axis()` returns a smoothed value (−1 to 1), while `get_axis_raw()` returns the unsmoothed value.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -64,40 +58,12 @@ Virtual axes `"Horizontal"` and `"Vertical"` map to WASD / arrow keys by default
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.input import Input, KeyCode
-from Infernux.math import vector3
-
-class PlayerController(InxComponent):
-    speed: float = 5.0
-    jump_force: float = 8.0
-
-    def update(self):
-        # Movement via virtual axes (WASD / arrow keys)
-        h = Input.get_axis("Horizontal")
-        v = Input.get_axis("Vertical")
-        move = vector3(h, 0, v) * self.speed * self.time.delta_time
-        self.transform.translate(move)
-
-        # Jump on Space press
-        if Input.get_key_down(KeyCode.SPACE):
-            Debug.log("Jump!")
-
-        # Sprint while Shift is held
-        if Input.get_key(KeyCode.LEFT_SHIFT):
-            self.transform.translate(move)  # double speed
-
-        # Shoot on left mouse button
-        if Input.get_mouse_button_down(0):
-            Debug.log("Fire!")
+# TODO: Add example for Input
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [KeyCode](KeyCode.md) — key constants used with Input methods
-- [InxComponent](InxComponent.md) — lifecycle methods where input is read
 
 <!-- USER CONTENT END -->

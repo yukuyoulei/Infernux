@@ -448,8 +448,6 @@ class in <b>Infernux.math</b>
 <p>A representation of 4D vectors.</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>vector4 represents a four-component vector. Common uses include RGBA colors (red, green, blue, alpha), homogeneous 3D coordinates, and passing multi-component values to shaders.</p>
-<p>Like vector2 and vector3, all methods are static and operate on <code>vec4f</code> values. Arithmetic operators work component-wise, and utility methods such as <code>lerp()</code>, <code>dot()</code>, and <code>normalize()</code> behave identically to their lower-dimension counterparts.</p>
 <!-- USER CONTENT END -->
 
 <h2 id="properties">Properties<a class="headerlink" href="#properties" title="Permanent link">&para;</a></h2>
@@ -558,36 +556,13 @@ class in <b>Infernux.math</b>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.math</span><span class="w"> </span><span class="kn">import</span> <span class="n">vector4</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># RGBA colors</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">red</span>   <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">green</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Lerp between colors for a fade effect</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">half</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">lerp</span><span class="p">(</span><span class="n">red</span><span class="p">,</span> <span class="n">green</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>   <span class="c1"># (0.5, 0.5, 0, 1)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># Magnitude and normalization</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">v</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">length</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">magnitude</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">unit</span>   <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># Component-wise min / max</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">a</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">b</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="n">lo</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>   <span class="c1"># (1, 1, 2, 2)</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">hi</span> <span class="o">=</span> <span class="n">vector4</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>   <span class="c1"># (3, 5, 4, 6)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for vector4</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="vector2.html">vector2</a> — 2D vector operations</li>
-<li><a href="vector3.html">vector3</a> — 3D vector operations</li>
-<li><a href="Material.html">Material</a> — uses vector4 for shader parameters</li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

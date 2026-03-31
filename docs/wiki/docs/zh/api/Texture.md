@@ -10,12 +10,6 @@
 
 <!-- USER CONTENT START --> description
 
-Texture 表示加载到 GPU 显存中的二维图像，供 [Material](Material.md) 使用以实现漫反射贴图、法线贴图等表面细节效果。通过 `Texture.load()` 从磁盘图像文件加载纹理。
-
-加载后，可通过 `width`、`height` 和 `channels` 属性查看纹理尺寸。使用 `Material.set_texture_guid()` 将纹理指定到材质的 Uniform 上，使其在渲染时生效。像素数据可通过 `pixels_as_bytes()` 读取，或通过 `to_numpy()` 转换为 NumPy 数组用于图像处理。
-
-引擎支持 PNG、JPG、BMP 和 TGA 等常见图像格式。还可以通过 `Texture.solid_color()`、`Texture.checkerboard()` 或 `Texture.from_memory()` 以编程方式创建纹理。
-
 <!-- USER CONTENT END -->
 
 ## 构造函数
@@ -85,35 +79,12 @@ Texture 表示加载到 GPU 显存中的二维图像，供 [Material](Material.m
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.resources import Texture, Material
-
-class TextureDemo(InxComponent):
-    def start(self):
-        # 从磁盘加载纹理
-        tex = Texture.load("textures/stone_diffuse.png")
-        if tex:
-            print(f"已加载：{tex.width}x{tex.height}，{tex.channels} 通道")
-
-            # 将纹理应用到材质
-            mat = Material.create_lit()
-            mat.set_texture_guid("_BaseMap", tex.name)
-
-            renderer = self.game_object.get_cpp_component("MeshRenderer")
-            if renderer:
-                renderer.render_material = mat
-
-        # 以编程方式创建纯红色纹理
-        red_tex = Texture.solid_color(64, 64, r=255, g=0, b=0)
+# TODO: Add example for Texture
 ```
 <!-- USER CONTENT END -->
 
 ## 另请参阅
 
 <!-- USER CONTENT START --> see_also
-
-- [Material 材质](Material.md)
-- [Shader 着色器](Shader.md)
-- [MeshRenderer 网格渲染器](MeshRenderer.md)
 
 <!-- USER CONTENT END -->

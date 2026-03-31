@@ -458,9 +458,6 @@ arr = np.frombuffer(pixels, dtype=np.uint8).reshape(
 </code></pre></div>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>Texture represents a 2D image loaded into GPU memory, used by <a href="Material.html">Materials</a> for surface detail such as diffuse color maps, normal maps, and other effects. Textures are loaded from image files on disk using <code>Texture.load()</code>.</p>
-<p>After loading, read the <code>width</code>, <code>height</code>, and <code>channels</code> properties to inspect the texture's dimensions. Assign a Texture to a material uniform with <code>Material.set_texture_guid()</code> to apply it during rendering. Pixel data can be read back via <code>pixels_as_bytes()</code> or converted to NumPy arrays with <code>to_numpy()</code> for image processing.</p>
-<p>The engine supports common image formats including PNG, JPG, BMP, and TGA. You can also create textures procedurally via <code>Texture.solid_color()</code>, <code>Texture.checkerboard()</code>, or <code>Texture.from_memory()</code> with raw pixel data.</p>
 <!-- USER CONTENT END -->
 
 <h2 id="constructors">Constructors<a class="headerlink" href="#constructors" title="Permanent link">&para;</a></h2>
@@ -622,37 +619,13 @@ arr = np.frombuffer(pixels, dtype=np.uint8).reshape(
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux</span><span class="w"> </span><span class="kn">import</span> <span class="n">InxComponent</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.resources</span><span class="w"> </span><span class="kn">import</span> <span class="n">Texture</span><span class="p">,</span> <span class="n">Material</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">class</span><span class="w"> </span><span class="nc">TextureDemo</span><span class="p">(</span><span class="n">InxComponent</span><span class="p">):</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="c1"># Load a texture from disk</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">tex</span> <span class="o">=</span> <span class="n">Texture</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;textures/stone_diffuse.png&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="k">if</span> <span class="n">tex</span><span class="p">:</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded: </span><span class="si">{</span><span class="n">tex</span><span class="o">.</span><span class="n">width</span><span class="si">}</span><span class="s2">x</span><span class="si">{</span><span class="n">tex</span><span class="o">.</span><span class="n">height</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">tex</span><span class="o">.</span><span class="n">channels</span><span class="si">}</span><span class="s2"> channels&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>            <span class="c1"># Apply the texture to a material</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>            <span class="n">mat</span> <span class="o">=</span> <span class="n">Material</span><span class="o">.</span><span class="n">create_lit</span><span class="p">()</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>            <span class="n">mat</span><span class="o">.</span><span class="n">set_texture_guid</span><span class="p">(</span><span class="s2">&quot;_BaseMap&quot;</span><span class="p">,</span> <span class="n">tex</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>            <span class="n">renderer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">get_cpp_component</span><span class="p">(</span><span class="s2">&quot;MeshRenderer&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>            <span class="k">if</span> <span class="n">renderer</span><span class="p">:</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>                <span class="n">renderer</span><span class="o">.</span><span class="n">render_material</span> <span class="o">=</span> <span class="n">mat</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="c1"># Create a solid red texture procedurally</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="n">red_tex</span> <span class="o">=</span> <span class="n">Texture</span><span class="o">.</span><span class="n">solid_color</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="n">r</span><span class="o">=</span><span class="mi">255</span><span class="p">,</span> <span class="n">g</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for Texture</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="Material.html">Material</a></li>
-<li><a href="Shader.html">Shader</a></li>
-<li><a href="MeshRenderer.html">MeshRenderer</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

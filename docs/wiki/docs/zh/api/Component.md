@@ -10,12 +10,6 @@
 
 <!-- USER CONTENT START --> description
 
-Component 是 Infernux 中所有内置 C++ 组件的基类，包括 [Transform](Transform.md)、[Camera](Camera.md)、[Light](Light.md) 和 [MeshRenderer](MeshRenderer.md) 等。组件挂载在 [GameObject](GameObject.md) 上，提供特定的功能。
-
-不应直接实例化 Component。应使用 `GameObject.add_component()` 通过类型名称添加内置组件。每个 Component 都持有对所属 `game_object` 和 `transform` 的引用，方便访问对象层级。
-
-如需编写自定义的 Python 游戏逻辑，应继承 [InxComponent](InxComponent.md) 而非 Component。InxComponent 扩展了 Component，提供 `start()`、`update()` 等生命周期回调。
-
 <!-- USER CONTENT END -->
 
 ## 属性
@@ -49,35 +43,12 @@ Component 是 Infernux 中所有内置 C++ 组件的基类，包括 [Transform](
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-
-class ComponentQuery(InxComponent):
-    def start(self):
-        # 每个组件都可以访问其所属的 GameObject
-        owner = self.game_object
-        print(f"挂载于：{owner.name}")
-
-        # 通过组件快捷方式访问 Transform
-        pos = self.transform.position
-        print(f"位置：{pos}")
-
-        # 获取同级的 C++ 组件
-        renderer = owner.get_cpp_component("MeshRenderer")
-        if renderer:
-            print("已找到 MeshRenderer")
-
-        # 列出此对象上的所有组件
-        for comp in owner.get_components():
-            print(f"组件：{type(comp).__name__}")
+# TODO: Add example for Component
 ```
 <!-- USER CONTENT END -->
 
 ## 另请参阅
 
 <!-- USER CONTENT START --> see_also
-
-- [GameObject](GameObject.md)
-- [Transform](Transform.md)
-- [InxComponent 脚本组件](InxComponent.md)
 
 <!-- USER CONTENT END -->

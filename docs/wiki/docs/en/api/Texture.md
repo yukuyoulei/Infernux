@@ -21,12 +21,6 @@ Example::
 
 <!-- USER CONTENT START --> description
 
-Texture represents a 2D image loaded into GPU memory, used by [Materials](Material.md) for surface detail such as diffuse color maps, normal maps, and other effects. Textures are loaded from image files on disk using `Texture.load()`.
-
-After loading, read the `width`, `height`, and `channels` properties to inspect the texture's dimensions. Assign a Texture to a material uniform with `Material.set_texture_guid()` to apply it during rendering. Pixel data can be read back via `pixels_as_bytes()` or converted to NumPy arrays with `to_numpy()` for image processing.
-
-The engine supports common image formats including PNG, JPG, BMP, and TGA. You can also create textures procedurally via `Texture.solid_color()`, `Texture.checkerboard()`, or `Texture.from_memory()` with raw pixel data.
-
 <!-- USER CONTENT END -->
 
 ## Constructors
@@ -96,35 +90,12 @@ The engine supports common image formats including PNG, JPG, BMP, and TGA. You c
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.resources import Texture, Material
-
-class TextureDemo(InxComponent):
-    def start(self):
-        # Load a texture from disk
-        tex = Texture.load("textures/stone_diffuse.png")
-        if tex:
-            print(f"Loaded: {tex.width}x{tex.height}, {tex.channels} channels")
-
-            # Apply the texture to a material
-            mat = Material.create_lit()
-            mat.set_texture_guid("_BaseMap", tex.name)
-
-            renderer = self.game_object.get_cpp_component("MeshRenderer")
-            if renderer:
-                renderer.render_material = mat
-
-        # Create a solid red texture procedurally
-        red_tex = Texture.solid_color(64, 64, r=255, g=0, b=0)
+# TODO: Add example for Texture
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Material](Material.md)
-- [Shader](Shader.md)
-- [MeshRenderer](MeshRenderer.md)
 
 <!-- USER CONTENT END -->

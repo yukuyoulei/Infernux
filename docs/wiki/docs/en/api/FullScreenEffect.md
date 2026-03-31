@@ -45,6 +45,7 @@ Base class for fullscreen post-processing effects.
 | `inject(graph: RenderGraph, bus: ResourceBus) → None` | Inject this effect into the render graph. |
 | `get_params_dict() → Dict[str, Any]` | Get serializable parameters as a dictionary. |
 | `set_params_dict(params: Dict[str, Any]) → None` | Restore parameters from a dictionary. |
+| `apply_single_source_effect(graph: RenderGraph, bus: ResourceBus, output_name: str, pass_name: str, shader_name: str, format: Any, params: Mapping[str, object] | None = ...) → bool` | Apply a one-pass fullscreen effect that rewrites the scene color. |
 
 <!-- USER CONTENT START --> public_methods
 

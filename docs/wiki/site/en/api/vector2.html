@@ -448,9 +448,6 @@ class in <b>Infernux.math</b>
 <p>A representation of 2D vectors and points.</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>vector2 represents a two-dimensional vector with <code>x</code> and <code>y</code> components. It is used for 2D positions, directions, UV coordinates, and screen-space calculations throughout the engine.</p>
-<p>Supports standard arithmetic — add, subtract, multiply, and divide vectors or scale by a scalar. Utility methods provide common operations: <code>magnitude()</code> and <code>sqr_magnitude()</code> for length, <code>normalize()</code> for unit conversion, <code>dot()</code> for projection, <code>distance()</code> for spacing, <code>lerp()</code> for interpolation, and <code>angle()</code> for measuring rotation between directions.</p>
-<p>Static constants like <code>vector2.zero</code>, <code>vector2.one</code>, <code>vector2.up</code>, and <code>vector2.right</code> give quick access to frequently used values without constructing new instances.</p>
 <!-- USER CONTENT END -->
 
 <h2 id="properties">Properties<a class="headerlink" href="#properties" title="Permanent link">&para;</a></h2>
@@ -599,40 +596,13 @@ class in <b>Infernux.math</b>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.math</span><span class="w"> </span><span class="kn">import</span> <span class="n">vector2</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Construct vectors</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">pos</span> <span class="o">=</span> <span class="n">vector2</span><span class="p">(</span><span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">target</span> <span class="o">=</span> <span class="n">vector2</span><span class="p">(</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Arithmetic</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">offset</span> <span class="o">=</span> <span class="n">vector2</span><span class="p">(</span><span class="n">target</span><span class="o">.</span><span class="n">x</span> <span class="o">-</span> <span class="n">pos</span><span class="o">.</span><span class="n">x</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">y</span> <span class="o">-</span> <span class="n">pos</span><span class="o">.</span><span class="n">y</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">scaled</span> <span class="o">=</span> <span class="n">vector2</span><span class="p">(</span><span class="n">offset</span><span class="o">.</span><span class="n">x</span> <span class="o">*</span> <span class="mf">0.5</span><span class="p">,</span> <span class="n">offset</span><span class="o">.</span><span class="n">y</span> <span class="o">*</span> <span class="mf">0.5</span><span class="p">)</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># Length and distance</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">length</span> <span class="o">=</span> <span class="n">vector2</span><span class="o">.</span><span class="n">magnitude</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>           <span class="c1"># 5.0</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">dist</span> <span class="o">=</span> <span class="n">vector2</span><span class="o">.</span><span class="n">distance</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># Normalize to a unit direction</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">direction</span> <span class="o">=</span> <span class="n">vector2</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">offset</span><span class="p">)</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="c1"># Dot product and angle</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="n">dot</span> <span class="o">=</span> <span class="n">vector2</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="n">angle</span> <span class="o">=</span> <span class="n">vector2</span><span class="o">.</span><span class="n">angle</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1"># Smooth interpolation between two points</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="n">mid</span> <span class="o">=</span> <span class="n">vector2</span><span class="o">.</span><span class="n">lerp</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for vector2</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="vector3.html">vector3</a></li>
-<li><a href="vector4.html">vector4</a></li>
-<li><a href="Transform.html">Transform</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

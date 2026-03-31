@@ -40,10 +40,6 @@ Example::
 
 <!-- USER CONTENT START --> description
 
-`serialized_field` 将类属性标记为序列化字段并在检查器中可见。它是在 Infernux 编辑器中暴露组件数据以及场景/预制件序列化的主要方式。
-
-支持的字段类型包括数值（`int`、`float`）、字符串、布尔值、向量、颜色、枚举、GameObject、Component 和列表。每个字段可通过提示信息、范围、标题、分组和可见性回调进行自定义。
-
 <!-- USER CONTENT END -->
 
 ## 参数
@@ -74,27 +70,6 @@ Example::
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.components import serialized_field
-
-class Enemy(InxComponent):
-    # 基本数值字段，带检查器提示
-    health: float = serialized_field(default=100.0, range=(0, 500),
-                                      tooltip="最大生命值")
-    speed: float = serialized_field(default=3.0, range=(0, 20), slider=True)
-
-    # 带标题和多行输入的字符串
-    description: str = serialized_field(default="", header="信息",
-                                         multiline=True)
-
-    # 检查器中的只读状态
-    is_alive: bool = serialized_field(default=True, readonly=True)
-
-    # 分组字段，带条件可见性
-    use_patrol: bool = serialized_field(default=False, group="AI")
-    patrol_radius: float = serialized_field(
-        default=10.0, group="AI",
-        visible_when=lambda self: self.use_patrol
-    )
+# TODO: Add example for serialized_field
 ```
 <!-- USER CONTENT END -->

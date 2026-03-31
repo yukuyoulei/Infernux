@@ -448,9 +448,6 @@
 <p>三维向量，包含 x、y 和 z 分量。</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>vector3 是 Infernux 中使用频率最高的类型。它用于表示三维空间中的位置、方向、速度和缩放。每个 <a href="Transform.html">Transform</a> 的 <code>position</code>、<code>rotation</code>、<code>local_scale</code> 都以 vector3 值存储，物理、渲染和动画系统也都基于它工作。</p>
-<p>算术运算符（<code>+</code>、<code>-</code>、<code>*</code>、<code>/</code>）按分量运算。使用 <code>dot()</code> 测量两个方向的对齐程度，使用 <code>cross()</code> 计算垂直向量（例如曲面法线），使用 <code>project()</code> / <code>project_on_plane()</code> 进行投影。</p>
-<p>静态方向常量——<code>forward</code>（0, 0, 1）、<code>up</code>（0, 1, 0）、<code>right</code>（1, 0, 0）——遵循 Infernux 的左手坐标系约定。</p>
 <!-- USER CONTENT END -->
 
 <h2 id="_2">属性<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
@@ -629,40 +626,13 @@
 <h2 id="_4">示例<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.math</span><span class="w"> </span><span class="kn">import</span> <span class="n">vector3</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># 创建位置</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">origin</span> <span class="o">=</span> <span class="n">vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">target</span> <span class="o">=</span> <span class="n">vector3</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># 方向和距离</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">direction</span> <span class="o">=</span> <span class="n">vector3</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">target</span> <span class="o">-</span> <span class="n">origin</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">dist</span> <span class="o">=</span> <span class="n">vector3</span><span class="o">.</span><span class="n">distance</span><span class="p">(</span><span class="n">origin</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># 叉积——用两条边向量计算曲面法线</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">edge_a</span> <span class="o">=</span> <span class="n">vector3</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="n">edge_b</span> <span class="o">=</span> <span class="n">vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="n">normal</span> <span class="o">=</span> <span class="n">vector3</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">vector3</span><span class="o">.</span><span class="n">cross</span><span class="p">(</span><span class="n">edge_a</span><span class="p">,</span> <span class="n">edge_b</span><span class="p">))</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="c1"># 平滑移向目标</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="n">current</span> <span class="o">=</span> <span class="n">vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="n">current</span> <span class="o">=</span> <span class="n">vector3</span><span class="o">.</span><span class="n">lerp</span><span class="p">(</span><span class="n">current</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># 使用内置方向常量</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="n">forward</span> <span class="o">=</span> <span class="n">vector3</span><span class="o">.</span><span class="n">forward</span>   <span class="c1"># (0, 0, 1)</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="n">up</span>      <span class="o">=</span> <span class="n">vector3</span><span class="o">.</span><span class="n">up</span>         <span class="c1"># (0, 1, 0)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for vector3</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="_5">另请参阅<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="vector2.html">vector2</a> — 二维向量运算</li>
-<li><a href="vector4.html">vector4</a> — 用于颜色和齐次坐标的四维向量</li>
-<li><a href="Transform.html">Transform</a> — 使用 vector3 表示位置、旋转和缩放</li>
-<li><a href="GameObject.html">GameObject</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

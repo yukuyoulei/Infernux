@@ -16,12 +16,6 @@ Example::
 
 <!-- USER CONTENT START --> description
 
-Shader represents a compiled GPU shader program used by [Materials](Material.md). Shaders define how vertices are transformed and how pixels are colored. Infernux's Vulkan backend compiles shaders to SPIR-V.
-
-In most cases you work with shaders indirectly through [Material](Material.md) factory methods like `Material.create_lit()`, which automatically assign the appropriate shader. Use `Shader.is_loaded()` to check whether a shader is available, `Shader.reload()` for hot-reloading during development, and `Shader.load_spirv()` to load pre-compiled SPIR-V modules directly.
-
-The two-stage pipeline uses a vertex shader to process geometry and a fragment shader to compute final pixel colors. Use `Shader.refresh_materials()` after reloading to update all materials that reference the changed shader.
-
 <!-- USER CONTENT END -->
 
 ## Static Methods
@@ -42,27 +36,12 @@ The two-stage pipeline uses a vertex shader to process geometry and a fragment s
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux.resources import Shader, Material
-
-# Check if a shader is loaded
-if Shader.is_loaded("pbr_lit"):
-    print("PBR shader ready")
-
-# Hot-reload a shader during development
-Shader.reload("pbr_lit")
-
-# Shaders are typically used via Material factory methods
-mat = Material.create_lit()   # uses the lit shader internally
-print(f"Shader: {mat.shader_name}")
+# TODO: Add example for Shader
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Material](Material.md)
-- [Texture](Texture.md)
-- [MeshRenderer](MeshRenderer.md)
 
 <!-- USER CONTENT END -->

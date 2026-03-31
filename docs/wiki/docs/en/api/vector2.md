@@ -10,12 +10,6 @@ A representation of 2D vectors and points.
 
 <!-- USER CONTENT START --> description
 
-vector2 represents a two-dimensional vector with `x` and `y` components. It is used for 2D positions, directions, UV coordinates, and screen-space calculations throughout the engine.
-
-Supports standard arithmetic — add, subtract, multiply, and divide vectors or scale by a scalar. Utility methods provide common operations: `magnitude()` and `sqr_magnitude()` for length, `normalize()` for unit conversion, `dot()` for projection, `distance()` for spacing, `lerp()` for interpolation, and `angle()` for measuring rotation between directions.
-
-Static constants like `vector2.zero`, `vector2.one`, `vector2.up`, and `vector2.right` give quick access to frequently used values without constructing new instances.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -66,38 +60,12 @@ Static constants like `vector2.zero`, `vector2.one`, `vector2.up`, and `vector2.
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux.math import vector2
-
-# Construct vectors
-pos = vector2(3.0, 4.0)
-target = vector2(10.0, 0.0)
-
-# Arithmetic
-offset = vector2(target.x - pos.x, target.y - pos.y)
-scaled = vector2(offset.x * 0.5, offset.y * 0.5)
-
-# Length and distance
-length = vector2.magnitude(pos)           # 5.0
-dist = vector2.distance(pos, target)
-
-# Normalize to a unit direction
-direction = vector2.normalize(offset)
-
-# Dot product and angle
-dot = vector2.dot(pos, target)
-angle = vector2.angle(pos, target)
-
-# Smooth interpolation between two points
-mid = vector2.lerp(pos, target, 0.5)
+# TODO: Add example for vector2
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [vector3](vector3.md)
-- [vector4](vector4.md)
-- [Transform](Transform.md)
 
 <!-- USER CONTENT END -->

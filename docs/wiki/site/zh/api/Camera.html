@@ -449,9 +449,6 @@
 <p>渲染场景视图的摄像机组件。</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>Camera 是将场景视图渲染到屏幕的组件。它支持透视模式（真实三维纵深）和正交模式（无透视缩短，适合二维或技术视图）。视场角、近远裁剪面和视口矩形共同控制可见的几何体范围。</p>
-<p>当存在多个摄像机时，<code>depth</code> 属性决定渲染顺序——深度值较小的摄像机先渲染，从而实现分层效果，例如在游戏摄像机之上叠加 UI 覆盖摄像机。使用 <code>screen_to_world_point()</code> 和 <code>screen_point_to_ray()</code> 等坐标转换方法，可在屏幕像素与三维世界坐标之间转换，用于拾取和交互。</p>
-<p>如需高级渲染控制，可直接读取 <code>view_matrix</code> 和 <code>projection_matrix</code> 属性，或修改清除标志和背景颜色以控制绘制前帧缓冲区的准备方式。</p>
 <!-- USER CONTENT END -->
 
 <h2 id="_2">属性<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
@@ -587,39 +584,13 @@
 <h2 id="_5">示例<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux</span><span class="w"> </span><span class="kn">import</span> <span class="n">InxComponent</span><span class="p">,</span> <span class="n">serialized_field</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">CameraSetup</span><span class="p">(</span><span class="n">InxComponent</span><span class="p">):</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        <span class="n">cam</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">get_cpp_component</span><span class="p">(</span><span class="s2">&quot;Camera&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">cam</span><span class="p">:</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>            <span class="k">return</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="c1"># 配置透视摄像机</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">cam</span><span class="o">.</span><span class="n">field_of_view</span> <span class="o">=</span> <span class="mf">60.0</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="n">cam</span><span class="o">.</span><span class="n">near_clip</span> <span class="o">=</span> <span class="mf">0.3</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="n">cam</span><span class="o">.</span><span class="n">far_clip</span> <span class="o">=</span> <span class="mf">500.0</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="n">cam</span><span class="o">.</span><span class="n">depth</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># 最先渲染</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">delta_time</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        <span class="n">cam</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">get_cpp_component</span><span class="p">(</span><span class="s2">&quot;Camera&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>        <span class="c1"># 将屏幕中心转换为世界空间射线</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="n">ray</span> <span class="o">=</span> <span class="n">cam</span><span class="o">.</span><span class="n">screen_point_to_ray</span><span class="p">(</span><span class="mf">960.0</span><span class="p">,</span> <span class="mf">540.0</span><span class="p">)</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="k">if</span> <span class="n">ray</span><span class="p">:</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>            <span class="n">origin</span><span class="p">,</span> <span class="n">direction</span> <span class="o">=</span> <span class="n">ray</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for Camera</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="_6">另请参阅<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="GameObject.html">GameObject</a></li>
-<li><a href="Transform.html">Transform</a></li>
-<li><a href="Light.html">Light 灯光</a></li>
-<li><a href="MeshRenderer.html">MeshRenderer 网格渲染器</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

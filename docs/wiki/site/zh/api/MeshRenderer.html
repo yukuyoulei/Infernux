@@ -449,9 +449,6 @@
 <p>使用网格和材质渲染 3D 几何体的组件。</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>MeshRenderer 是负责在场景中绘制三维几何体的组件。它将网格数据与 <a href="Material.html">Material</a>（材质）结合，产生可见的对象。没有 MeshRenderer 的 <a href="GameObject.html">GameObject</a> 虽然存在于场景层级中，但不会有任何视觉表现。</p>
-<p>通过网格资产 GUID 指定网格，通过 <code>render_material</code> 或 <code>material_guid</code> 指定材质。<code>casts_shadows</code> 和 <code>receives_shadows</code> 属性控制阴影交互。MeshRenderer 读取对象的 <a href="Transform.html">Transform</a> 来确定网格在世界空间中的位置。</p>
-<p>对于需要多种材质的对象（例如不同的子网格），使用 <code>set_material_slot_count()</code> 和 <code>set_material()</code> 配置各个槽位。通过 <code>get_positions()</code>、<code>get_normals()</code> 和 <code>get_uvs()</code> 在运行时访问顶点数据。</p>
 <!-- USER CONTENT END -->
 
 <h2 id="_2">属性<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
@@ -602,39 +599,13 @@
 <h2 id="_4">示例<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux</span><span class="w"> </span><span class="kn">import</span> <span class="n">InxComponent</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.resources</span><span class="w"> </span><span class="kn">import</span> <span class="n">Material</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">class</span><span class="w"> </span><span class="nc">MeshSetup</span><span class="p">(</span><span class="n">InxComponent</span><span class="p">):</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="n">renderer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">get_cpp_component</span><span class="p">(</span><span class="s2">&quot;MeshRenderer&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">renderer</span><span class="p">:</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>            <span class="n">renderer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">add_component</span><span class="p">(</span><span class="s2">&quot;MeshRenderer&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="c1"># 创建并指定光照材质</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="n">mat</span> <span class="o">=</span> <span class="n">Material</span><span class="o">.</span><span class="n">create_lit</span><span class="p">()</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="n">mat</span><span class="o">.</span><span class="n">set_color</span><span class="p">(</span><span class="s2">&quot;_BaseColor&quot;</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="n">renderer</span><span class="o">.</span><span class="n">render_material</span> <span class="o">=</span> <span class="n">mat</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        <span class="c1"># 配置阴影行为</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        <span class="n">renderer</span><span class="o">.</span><span class="n">casts_shadows</span> <span class="o">=</span> <span class="kc">True</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        <span class="n">renderer</span><span class="o">.</span><span class="n">receives_shadows</span> <span class="o">=</span> <span class="kc">True</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="c1"># 检查网格数据</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;顶点数：</span><span class="si">{</span><span class="n">renderer</span><span class="o">.</span><span class="n">vertex_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;索引数：</span><span class="si">{</span><span class="n">renderer</span><span class="o">.</span><span class="n">index_count</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for MeshRenderer</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="_5">另请参阅<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="Material.html">Material 材质</a></li>
-<li>网格顶点访问辅助：<code>get_positions()</code>、<code>get_normals()</code>、<code>get_uvs()</code></li>
-<li><a href="Shader.html">Shader 着色器</a></li>
-<li><a href="Transform.html">Transform</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

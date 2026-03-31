@@ -17,10 +17,6 @@ Args:
 
 <!-- USER CONTENT START --> description
 
-指定此组件在编辑器的 **添加组件** 菜单中的显示路径。使用斜杠创建嵌套类别（例如 `"Gameplay/AI/Patrol"`）。
-
-未使用此装饰器时，自定义组件会显示在菜单的顶层。
-
 <!-- USER CONTENT END -->
 
 ## 参数
@@ -33,13 +29,6 @@ Args:
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.components import add_component_menu
-
-@add_component_menu("Gameplay/Character/PlayerController")
-class PlayerController(InxComponent):
-    """在“添加组件”菜单中显示在 Gameplay > Character 下。"""
-    def update(self):
-        pass
+# TODO: Add example for add_component_menu
 ```
 <!-- USER CONTENT END -->

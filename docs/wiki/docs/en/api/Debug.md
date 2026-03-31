@@ -10,10 +10,6 @@ Utility class for logging messages to the console.
 
 <!-- USER CONTENT START --> description
 
-Debug provides logging and visual diagnostic utilities. Messages appear in the engine console with severity levels: **Log**, **Warning**, and **Error**.
-
-Use `Debug.log()` for general information, `Debug.log_warning()` for potential issues, and `Debug.log_error()` for errors that need attention. `Debug.log_assert()` can validate conditions during development. Call `Debug.clear_console()` to reset the console output.
-
 <!-- USER CONTENT END -->
 
 ## Static Methods
@@ -36,30 +32,12 @@ Use `Debug.log()` for general information, `Debug.log_warning()` for potential i
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.debug import Debug
-
-class DebugExample(InxComponent):
-    def start(self):
-        Debug.log("Game started")
-        Debug.log_warning("Low memory")
-        Debug.log_error("Shader compilation failed")
-
-    def update(self):
-        # Assert a condition during development
-        Debug.log_assert(self.game_object is not None, "Missing game object")
-
-        # Log once with context
-        if self.time.frame_count == 1:
-            Debug.log(f"First frame delta: {self.time.delta_time}", self)
+# TODO: Add example for Debug
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Gizmos](Gizmos.md) — visual debugging in the Scene view
-- [InxComponent](InxComponent.md) — component lifecycle
 
 <!-- USER CONTENT END -->

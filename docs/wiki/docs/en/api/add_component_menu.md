@@ -17,10 +17,6 @@ Args:
 
 <!-- USER CONTENT START --> description
 
-Specifies the menu path where this component appears in the editor's **Add Component** menu. Use slashes to create nested categories (e.g., `"Gameplay/AI/Patrol"`).
-
-Without this decorator, custom components appear at the top level of the menu.
-
 <!-- USER CONTENT END -->
 
 ## Parameters
@@ -33,13 +29,6 @@ Without this decorator, custom components appear at the top level of the menu.
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.components import add_component_menu
-
-@add_component_menu("Gameplay/Character/PlayerController")
-class PlayerController(InxComponent):
-    """Appears under Gameplay > Character in the Add Component menu."""
-    def update(self):
-        pass
+# TODO: Add example for add_component_menu
 ```
 <!-- USER CONTENT END -->

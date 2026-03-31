@@ -449,9 +449,6 @@ class in <b>Infernux.components.builtin</b>
 <p>A Light component that illuminates the scene.</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>Light illuminates the scene, affecting how <a href="Material.html">Materials</a> and <a href="MeshRenderer.html">MeshRenderers</a> appear. Infernux supports three light types: directional lights (type 0) for sun-like parallel rays, point lights (type 1) that emit in all directions from a position, and spot lights (type 2) that emit in a cone.</p>
-<p>Key properties include <code>color</code> and <code>intensity</code> for brightness, <code>range</code> for point and spot falloff distance, and <code>spot_angle</code> for the cone width of spot lights. Shadows can be toggled per light via the <code>shadows</code> property — set it to enable shadow mapping for that light source.</p>
-<p>A scene typically has one directional light as the main sunlight, supplemented by point and spot lights for localized illumination. Adjust <code>shadow_strength</code> and <code>shadow_bias</code> to fine-tune shadow quality and reduce artifacts.</p>
 <!-- USER CONTENT END -->
 
 <h2 id="properties">Properties<a class="headerlink" href="#properties" title="Permanent link">&para;</a></h2>
@@ -564,36 +561,13 @@ class in <b>Infernux.components.builtin</b>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux</span><span class="w"> </span><span class="kn">import</span> <span class="n">InxComponent</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.math</span><span class="w"> </span><span class="kn">import</span> <span class="n">vector3</span><span class="p">,</span> <span class="n">vector4</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">class</span><span class="w"> </span><span class="nc">LightSetup</span><span class="p">(</span><span class="n">InxComponent</span><span class="p">):</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="n">light</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">get_cpp_component</span><span class="p">(</span><span class="s2">&quot;Light&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">light</span><span class="p">:</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>            <span class="n">light</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">game_object</span><span class="o">.</span><span class="n">add_component</span><span class="p">(</span><span class="s2">&quot;Light&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="c1"># Configure as a directional sunlight</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="n">light</span><span class="o">.</span><span class="n">light_type</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># directional</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="n">light</span><span class="o">.</span><span class="n">color</span> <span class="o">=</span> <span class="n">vector4</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>  <span class="c1"># warm white</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="n">light</span><span class="o">.</span><span class="n">intensity</span> <span class="o">=</span> <span class="mf">1.2</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="n">light</span><span class="o">.</span><span class="n">shadows</span> <span class="o">=</span> <span class="mi">1</span>  <span class="c1"># enable shadows</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        <span class="n">light</span><span class="o">.</span><span class="n">shadow_strength</span> <span class="o">=</span> <span class="mf">0.8</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        <span class="c1"># Point the light downward at an angle</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">transform</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="n">vector3</span><span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="o">-</span><span class="mi">30</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for Light</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="Camera.html">Camera</a></li>
-<li><a href="Material.html">Material</a></li>
-<li><a href="MeshRenderer.html">MeshRenderer</a></li>
-<li><a href="GameObject.html">GameObject</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

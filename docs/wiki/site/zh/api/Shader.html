@@ -448,9 +448,6 @@
 <p>着色器程序资源。</p>
 <!-- USER CONTENT START -->
 <p>description</p>
-<p>Shader 表示 <a href="Material.html">Material</a> 使用的已编译 GPU 着色器程序。着色器定义顶点如何变换以及像素如何着色。Infernux 的 Vulkan 后端将着色器编译为 SPIR-V 格式。</p>
-<p>通常通过 <a href="Material.html">Material</a> 的工厂方法（如 <code>Material.create_lit()</code>）间接使用着色器，工厂方法会自动分配合适的着色器。使用 <code>Shader.is_loaded()</code> 检查着色器是否可用，<code>Shader.reload()</code> 在开发过程中热重载，<code>Shader.load_spirv()</code> 直接加载预编译的 SPIR-V 模块。</p>
-<p>两阶段管线使用顶点着色器处理几何体，片段着色器计算最终像素颜色。重载后使用 <code>Shader.refresh_materials()</code> 更新所有引用该着色器的材质。</p>
 <!-- USER CONTENT END -->
 
 <h2 id="_2">静态方法<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
@@ -491,29 +488,13 @@
 <h2 id="_3">示例<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>example
-<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">Infernux.resources</span><span class="w"> </span><span class="kn">import</span> <span class="n">Shader</span><span class="p">,</span> <span class="n">Material</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># 检查着色器是否已加载</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">if</span> <span class="n">Shader</span><span class="o">.</span><span class="n">is_loaded</span><span class="p">(</span><span class="s2">&quot;pbr_lit&quot;</span><span class="p">):</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;PBR 着色器已就绪&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># 开发过程中热重载着色器</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">Shader</span><span class="o">.</span><span class="n">reload</span><span class="p">(</span><span class="s2">&quot;pbr_lit&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># 着色器通常通过材质工厂方法使用</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">mat</span> <span class="o">=</span> <span class="n">Material</span><span class="o">.</span><span class="n">create_lit</span><span class="p">()</span>   <span class="c1"># 内部使用 Lit 着色器</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;着色器：</span><span class="si">{</span><span class="n">mat</span><span class="o">.</span><span class="n">shader_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># TODO: Add example for Shader</span>
 </code></pre></div></p>
 <!-- USER CONTENT END -->
 
 <h2 id="_4">另请参阅<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
 <!-- USER CONTENT START -->
 <p>see_also</p>
-<ul>
-<li><a href="Material.html">Material 材质</a></li>
-<li><a href="Texture.html">Texture 纹理</a></li>
-<li><a href="MeshRenderer.html">MeshRenderer 网格渲染器</a></li>
-</ul>
 <!-- USER CONTENT END -->
         </main>
     </div>

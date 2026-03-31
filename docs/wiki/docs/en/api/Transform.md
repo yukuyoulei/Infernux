@@ -12,12 +12,6 @@ Transform component — position, rotation, scale, hierarchy.
 
 <!-- USER CONTENT START --> description
 
-Transform determines the position, rotation, and scale of a [GameObject](GameObject.md) in the scene. Every GameObject has exactly one Transform, and it cannot be removed. Transforms form a hierarchy: when a Transform has a parent, its `local_position`, `local_rotation`, and `local_scale` are relative to the parent. The `position` and `rotation` properties give world-space values.
-
-Direction helpers — `forward`, `right`, and `up` — return the object's current orientation axes in world space, making it straightforward to implement movement and aiming. Use `translate()` and `rotate()` for incremental motion, or set `position` and `rotation` directly for teleportation and snapping.
-
-The parent-child relationship is established through `set_parent()` on the [GameObject](GameObject.md). When the parent moves, all children move with it. Accessing `local_position` and `local_rotation` lets you offset children relative to their parent without worrying about world coordinates.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -82,39 +76,12 @@ The parent-child relationship is established through `set_parent()` on the [Game
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent, serialized_field
-from Infernux.math import vector3
-
-class Mover(InxComponent):
-    speed: float = serialized_field(default=3.0)
-    rotation_speed: float = serialized_field(default=90.0)
-
-    def update(self, delta_time: float):
-        # Move forward in the object's facing direction
-        self.transform.translate(self.transform.forward * self.speed * delta_time)
-
-        # Rotate around the Y axis
-        self.transform.rotate(vector3(0, self.rotation_speed * delta_time, 0))
-
-        # Read world-space position
-        pos = self.transform.position
-        if pos.y < -10:
-            # Reset position if fallen off the map
-            self.transform.position = vector3(0, 5, 0)
-
-        # Access local-space values relative to parent
-        local_pos = self.transform.local_position
-        local_pos.y = 1.0  # maintain a fixed height offset from parent
-        self.transform.local_position = local_pos
+# TODO: Add example for Transform
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [GameObject](GameObject.md)
-- [vector3](vector3.md)
-- [Component](Component.md)
 
 <!-- USER CONTENT END -->

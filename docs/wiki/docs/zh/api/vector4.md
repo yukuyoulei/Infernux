@@ -10,10 +10,6 @@
 
 <!-- USER CONTENT START --> description
 
-vector4 表示四分量向量。常见用途包括 RGBA 颜色（红、绿、蓝、透明度）、齐次 3D 坐标以及向着色器传递多分量值。
-
-与 vector2 和 vector3 一样，所有方法都是静态的，操作 `vec4f` 值。算术运算符按分量运算，`lerp()`、`dot()` 和 `normalize()` 等工具方法与低维版本行为一致。
-
 <!-- USER CONTENT END -->
 
 ## 属性
@@ -55,34 +51,12 @@ vector4 表示四分量向量。常见用途包括 RGBA 颜色（红、绿、蓝
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux.math import vector4
-
-# RGBA 颜色
-red   = vector4(1, 0, 0, 1)
-green = vector4(0, 1, 0, 1)
-
-# 在颜色之间插值实现渐变效果
-half = vector4.lerp(red, green, 0.5)   # (0.5, 0.5, 0, 1)
-
-# 长度与归一化
-v = vector4(1, 2, 3, 4)
-length = vector4.magnitude(v)
-unit   = vector4.normalize(v)
-
-# 按分量取最小值 / 最大值
-a = vector4(3, 1, 4, 2)
-b = vector4(1, 5, 2, 6)
-lo = vector4.min(a, b)   # (1, 1, 2, 2)
-hi = vector4.max(a, b)   # (3, 5, 4, 6)
+# TODO: Add example for vector4
 ```
 <!-- USER CONTENT END -->
 
 ## 另请参阅
 
 <!-- USER CONTENT START --> see_also
-
-- [vector2](vector2.md) — 二维向量运算
-- [vector3](vector3.md) — 三维向量运算
-- [Material](Material.md) — 使用 vector4 传递着色器参数
 
 <!-- USER CONTENT END -->

@@ -10,12 +10,6 @@ A representation of 3D vectors and points.
 
 <!-- USER CONTENT START --> description
 
-vector3 is the most frequently used type in Infernux. It represents positions, directions, velocities, and scales in three-dimensional space. Every [Transform](Transform.md) stores its `position`, `rotation`, and `local_scale` as vector3 values, and physics, rendering, and animation systems all operate on them.
-
-Arithmetic operators (`+`, `-`, `*`, `/`) work component-wise. Use `dot()` to measure alignment between two directions, `cross()` to compute perpendicular vectors (e.g., surface normals), and `project()` / `project_on_plane()` for projection.
-
-Static direction constants — `forward` (0, 0, 1), `up` (0, 1, 0), `right` (1, 0, 0) — follow Infernux's left-hand coordinate system conventions.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -73,38 +67,12 @@ Static direction constants — `forward` (0, 0, 1), `up` (0, 1, 0), `right` (1, 
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux.math import vector3
-
-# Create positions
-origin = vector3(0, 0, 0)
-target = vector3(10, 5, 3)
-
-# Direction and distance
-direction = vector3.normalize(target - origin)
-dist = vector3.distance(origin, target)
-
-# Cross product — compute a surface normal from two edge vectors
-edge_a = vector3(1, 0, 0)
-edge_b = vector3(0, 1, 0)
-normal = vector3.normalize(vector3.cross(edge_a, edge_b))
-
-# Smooth movement toward a target
-current = vector3(0, 0, 0)
-current = vector3.lerp(current, target, 0.1)
-
-# Use built-in direction constants
-forward = vector3.forward   # (0, 0, 1)
-up      = vector3.up         # (0, 1, 0)
+# TODO: Add example for vector3
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [vector2](vector2.md) — 2D vector operations
-- [vector4](vector4.md) — 4D vectors for colors and homogeneous coordinates
-- [Transform](Transform.md) — uses vector3 for position, rotation, and scale
-- [GameObject](GameObject.md)
 
 <!-- USER CONTENT END -->

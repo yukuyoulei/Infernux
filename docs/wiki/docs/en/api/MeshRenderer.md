@@ -12,12 +12,6 @@ Renders a mesh with assigned materials.
 
 <!-- USER CONTENT START --> description
 
-MeshRenderer is the component responsible for drawing 3D geometry in the scene. It combines mesh data with a [Material](Material.md) to produce a visible object. Without a MeshRenderer, a [GameObject](GameObject.md) exists in the scene hierarchy but has no visual representation.
-
-Assign a mesh through the mesh asset GUID and a material through `render_material` or `material_guid`. The `casts_shadows` and `receives_shadows` properties control shadow interaction. MeshRenderer reads the object's [Transform](Transform.md) to position the mesh in world space.
-
-For objects that require multiple materials (e.g., different sub-meshes), use `set_material_slot_count()` and `set_material()` to configure individual slots. Access vertex data at runtime through `get_positions()`, `get_normals()`, and `get_uvs()`.
-
 <!-- USER CONTENT END -->
 
 ## Properties
@@ -68,37 +62,12 @@ For objects that require multiple materials (e.g., different sub-meshes), use `s
 
 <!-- USER CONTENT START --> example
 ```python
-from Infernux import InxComponent
-from Infernux.resources import Material
-
-class MeshSetup(InxComponent):
-    def start(self):
-        renderer = self.game_object.get_cpp_component("MeshRenderer")
-        if not renderer:
-            renderer = self.game_object.add_component("MeshRenderer")
-
-        # Create and assign a lit material
-        mat = Material.create_lit()
-        mat.set_color("_BaseColor", 0.2, 0.6, 1.0, 1.0)
-        renderer.render_material = mat
-
-        # Configure shadow behavior
-        renderer.casts_shadows = True
-        renderer.receives_shadows = True
-
-        # Inspect mesh data
-        print(f"Vertices: {renderer.vertex_count}")
-        print(f"Indices: {renderer.index_count}")
+# TODO: Add example for MeshRenderer
 ```
 <!-- USER CONTENT END -->
 
 ## See Also
 
 <!-- USER CONTENT START --> see_also
-
-- [Material](Material.md)
-- Mesh vertex access helpers: `get_positions()`, `get_normals()`, `get_uvs()`
-- [Shader](Shader.md)
-- [Transform](Transform.md)
 
 <!-- USER CONTENT END -->
