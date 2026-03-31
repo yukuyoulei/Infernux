@@ -10,12 +10,13 @@ import ctypes
 import shutil
 import threading
 import time
+from collections import deque
 from Infernux.lib import InxGUIContext, TextureLoader, InputManager
 from Infernux.engine.i18n import t
 import Infernux.resources as _resources
 from .editor_panel import EditorPanel
 from .panel_registry import editor_panel
-from .theme import Theme, ImGuiCol, ImGuiStyleVar
+from .theme import Theme, ImGuiCol, ImGuiStyleVar, ImGuiTreeNodeFlags
 from . import project_file_ops as file_ops
 from . import project_utils
 from .imgui_keys import (KEY_F2, KEY_DELETE, KEY_ENTER, KEY_ESCAPE,
@@ -146,6 +147,11 @@ class _ThumbnailPixelCache:
 
 
 _thumb_pixel_cache = _ThumbnailPixelCache(max_px=128)
+
+_FILE_GRID_ICON_SIZE = 64
+_FILE_GRID_PADDING = 10
+_THUMBNAIL_REQUESTS_PER_FRAME = 1
+_THUMBNAIL_RETRY_DELAY_SEC = 1.0
 
 
 @editor_panel("Project", type_id="project", title_key="panel.project")
@@ -304,9 +310,18 @@ class ProjectPanel(EditorPanel):
         
         # Directory snapshot cache: path -> snapshot dict keyed by dir mtime
         self.__dir_cache = {}
+        self.__dir_tree_meta_cache = {}
+        self.__augmented_items_cache = {}
+        self.__label_layout_cache = {}
+        self.__grid_text_line_height = 0.0
 
         # Thumbnail cache: path -> (texture_id, last_modified_time)
         self.__thumbnail_cache = {}
+        self.__thumbnail_request_queue = deque()
+        self.__thumbnail_request_keys = set()
+        self.__thumbnail_retry_after = {}
+        self.__thumbnail_queue_path = self.__current_path
+        self.__material_mtime_cache = {}
         
         # File-type icon cache: icon_key (str) -> imgui texture id (int)
         self.__type_icon_cache = {}
@@ -432,7 +447,136 @@ class ProjectPanel(EditorPanel):
     
     def _invalidate_dir_cache(self):
         self.__dir_cache.clear()
+        self.__dir_tree_meta_cache.clear()
+        self.__augmented_items_cache.clear()
+        self.__label_layout_cache.clear()
         self.__model_sub_cache.clear()
+        self._clear_thumbnail_request_queue()
+
+    def _clear_thumbnail_request_queue(self):
+        self.__thumbnail_request_queue.clear()
+        self.__thumbnail_request_keys.clear()
+
+    def _queue_thumbnail_request(self, kind: str, file_path: str):
+        if not file_path:
+            return
+
+        retry_key = (kind, file_path)
+        if self.__thumbnail_retry_after.get(retry_key, 0.0) > time.monotonic():
+            return
+
+        request = (self.__current_path, kind, file_path)
+        if request in self.__thumbnail_request_keys:
+            return
+
+        self.__thumbnail_request_queue.append(request)
+        self.__thumbnail_request_keys.add(request)
+
+    def _get_material_mtime_ns(self, file_path: str):
+        if not file_path:
+            return None
+
+        now = time.monotonic()
+        cached = self.__material_mtime_cache.get(file_path)
+        if cached is not None and (now - cached[1]) < 1.0:
+            return cached[0]
+
+        if not os.path.exists(file_path):
+            return None
+
+        mtime_ns = self._get_mtime_ns(file_path)
+        self.__material_mtime_cache[file_path] = (mtime_ns, now)
+        return mtime_ns
+
+    def _process_pending_thumbnail_requests(self):
+        native_engine = self._get_native_engine()
+        if native_engine is None:
+            return
+
+        if self.__thumbnail_queue_path != self.__current_path:
+            self.__thumbnail_queue_path = self.__current_path
+            self._clear_thumbnail_request_queue()
+            return
+
+        remaining_budget = max(_THUMBNAIL_REQUESTS_PER_FRAME - self._thumbnails_loaded_this_frame, 0)
+        while self.__thumbnail_request_queue and remaining_budget > 0:
+            request = self.__thumbnail_request_queue.popleft()
+            self.__thumbnail_request_keys.discard(request)
+            request_dir, kind, file_path = request
+            if request_dir != self.__current_path or not os.path.exists(file_path):
+                continue
+
+            retry_key = (kind, file_path)
+            if self.__thumbnail_retry_after.get(retry_key, 0.0) > time.monotonic():
+                continue
+
+            if kind == 'image':
+                mtime_ns = self._get_mtime_ns(file_path)
+                if mtime_ns is None:
+                    continue
+
+                thumbnail_name = f"__thumb__{file_path}"
+                cached_entry = self.__thumbnail_cache.get(file_path)
+                if cached_entry is not None and cached_entry[1] == mtime_ns and cached_entry[0] != 0:
+                    continue
+
+                if native_engine.has_imgui_texture(thumbnail_name):
+                    tex_id = native_engine.get_imgui_texture_id(thumbnail_name)
+                    if tex_id != 0:
+                        self.__thumbnail_cache[file_path] = (tex_id, mtime_ns)
+                        continue
+
+                cached_pixels = _thumb_pixel_cache.get(file_path, mtime_ns)
+                if cached_pixels is None:
+                    try:
+                        pixels, w, h = _downsample_texture(file_path, self.THUMBNAIL_MAX_PX)
+                    except Exception:
+                        self.__thumbnail_retry_after[retry_key] = time.monotonic() + _THUMBNAIL_RETRY_DELAY_SEC
+                        continue
+                    _thumb_pixel_cache.put(file_path, pixels, w, h, mtime_ns)
+                else:
+                    pixels, w, h = cached_pixels
+
+                tex_id = native_engine.upload_texture_for_imgui(thumbnail_name, pixels, w, h)
+                if tex_id == 0:
+                    self.__thumbnail_retry_after[retry_key] = time.monotonic() + _THUMBNAIL_RETRY_DELAY_SEC
+                    continue
+
+                self.__thumbnail_cache[file_path] = (tex_id, mtime_ns)
+            elif kind == 'material':
+                mtime_ns = self._get_material_mtime_ns(file_path)
+                if mtime_ns is None:
+                    continue
+
+                thumbnail_name = f"__mat_thumb__{file_path}"
+                cached_entry = self.__thumbnail_cache.get(file_path)
+                if cached_entry is not None:
+                    cached_id, cached_mtime = cached_entry
+                    if cached_mtime == mtime_ns and cached_id != 0:
+                        continue
+                    if cached_mtime != mtime_ns:
+                        if native_engine.has_imgui_texture(thumbnail_name):
+                            native_engine.remove_imgui_texture(thumbnail_name)
+                        self.__thumbnail_cache.pop(file_path, None)
+
+                pixels = native_engine.render_material_preview_pixels(file_path, self.THUMBNAIL_MAX_PX)
+                if pixels is None:
+                    self.__thumbnail_retry_after[retry_key] = time.monotonic() + _THUMBNAIL_RETRY_DELAY_SEC
+                    continue
+
+                sq = self.THUMBNAIL_MAX_PX
+                tex_id = native_engine.upload_texture_for_imgui(thumbnail_name, pixels, sq, sq)
+                if tex_id == 0:
+                    self.__thumbnail_retry_after[retry_key] = time.monotonic() + _THUMBNAIL_RETRY_DELAY_SEC
+                    continue
+
+                self.__thumbnail_cache[file_path] = (tex_id, mtime_ns)
+            else:
+                continue
+
+            self.__thumbnail_retry_after.pop(retry_key, None)
+            self._thumbnails_loaded_this_frame += 1
+            remaining_budget -= 1
 
     @staticmethod
     def _normalize_path(path: str) -> str:
@@ -580,7 +724,181 @@ class ProjectPanel(EditorPanel):
             'items': dirs + files,
         }
         self.__dir_cache[path] = snapshot
+        self.__dir_tree_meta_cache[path] = {
+            'has_subdirs': bool(dirs),
+        }
         return snapshot
+
+    def _get_dir_tree_meta(self, path: str):
+        if not path:
+            return None
+
+        cached = self.__dir_tree_meta_cache.get(path)
+        if cached is not None:
+            return cached
+
+        has_subdirs = False
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    if not self._should_show(entry.name):
+                        continue
+                    try:
+                        if entry.is_dir():
+                            has_subdirs = True
+                            break
+                    except OSError:
+                        continue
+        except OSError:
+            return None
+
+        meta = {
+            'has_subdirs': has_subdirs,
+        }
+        self.__dir_tree_meta_cache[path] = meta
+        return meta
+
+    def _get_project_items(self, path: str, snapshot=None):
+        """Return current folder items, including expanded virtual sub-assets."""
+        if snapshot is None:
+            snapshot = self._get_dir_snapshot(path)
+        if snapshot is None:
+            return None
+
+        items = snapshot['items']
+        if not self.__expanded_models:
+            return items
+
+        expanded_paths = tuple(
+            item['path']
+            for item in items
+            if item['type'] == 'file'
+            and item.get('ext', '') in self.MODEL_EXTENSIONS
+            and item['path'] in self.__expanded_models
+        )
+        if not expanded_paths:
+            return items
+
+        cached = self.__augmented_items_cache.get(path)
+        if (cached is not None
+                and cached.get('mtime_ns') == snapshot.get('mtime_ns')
+                and cached.get('expanded_paths') == expanded_paths):
+            return cached['items']
+
+        augmented = []
+        for item in items:
+            augmented.append(item)
+            if item['type'] != 'file' or item.get('ext', '') not in self.MODEL_EXTENSIONS:
+                continue
+            if item['path'] not in self.__expanded_models:
+                continue
+
+            sub_assets = self._get_model_sub_assets(item['path'])
+            if not sub_assets:
+                continue
+
+            for sub_index, submesh in enumerate(sub_assets['submeshes']):
+                tri_count = submesh.get('index_count', 0) // 3
+                vertex_count = submesh.get('vertex_count', 0)
+                augmented.append({
+                    'type': 'sub_mesh',
+                    'name': (submesh.get('name', '') or f'SubMesh {sub_index}')
+                            + f'  ({tri_count} tris, {vertex_count} verts)',
+                    'path': f"{item['path']}##sub_mesh_{sub_index}",
+                    'parent_path': item['path'],
+                    'ext': '',
+                    'mtime_ns': None,
+                })
+            for slot_index, slot_name in enumerate(sub_assets['slot_names']):
+                augmented.append({
+                    'type': 'sub_material',
+                    'name': slot_name or f'Material {slot_index}',
+                    'path': f"{item['path']}##sub_mat_{slot_index}",
+                    'parent_path': item['path'],
+                    'ext': '',
+                    'mtime_ns': None,
+                    'slot_index': slot_index,
+                })
+
+        self.__augmented_items_cache[path] = {
+            'mtime_ns': snapshot.get('mtime_ns'),
+            'expanded_paths': expanded_paths,
+            'items': augmented,
+        }
+        return augmented
+
+    def _get_grid_text_line_height(self, ctx: InxGUIContext) -> float:
+        if self.__grid_text_line_height <= 0.0:
+            self.__grid_text_line_height = max(ctx.calc_text_size('Ag')[1], 14.0)
+        return self.__grid_text_line_height
+
+    def _get_visible_grid_range(
+            self,
+            ctx: InxGUIContext,
+            item_count: int,
+            cols: int,
+            row_height: float,
+            start_y: float = 0.0):
+        if item_count <= 0 or cols <= 0 or row_height <= 0.0:
+            return 0, item_count, 0.0, 0.0
+
+        scroll_y = max(ctx.get_scroll_y() - start_y, 0.0)
+        viewport_h = max(ctx.get_content_region_avail_height(), row_height)
+        total_rows = (item_count + cols - 1) // cols
+        first_row = max(int(scroll_y // row_height) - 1, 0)
+        visible_rows = max(int(viewport_h // row_height) + 3, 1)
+        last_row = min(total_rows, first_row + visible_rows)
+
+        top_spacer_h = first_row * row_height
+        bottom_spacer_h = max(total_rows - last_row, 0) * row_height
+        start_index = first_row * cols
+        end_index = min(item_count, last_row * cols)
+        return start_index, end_index, top_spacer_h, bottom_spacer_h
+
+    def _get_cached_item_label(self, ctx: InxGUIContext, item: dict, text_region_w: float):
+        item_path = item['path']
+        item_type = item['type']
+        item_name = item['name']
+        ext = item.get('ext', '')
+        is_expanded_model = (
+            item_type == 'file'
+            and ext in self.MODEL_EXTENSIONS
+            and item_path in self.__expanded_models
+        )
+        cache_key = (item_type, item_path, item_name, is_expanded_model, int(text_region_w))
+        cached = self.__label_layout_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        name_display = item_name
+        if item_type == 'file':
+            name_display = os.path.splitext(item_name)[0]
+            if ext in self.MODEL_EXTENSIONS:
+                name_display += '  \u25BC' if is_expanded_model else '  \u25B6'
+        elif item_type in ('sub_mesh', 'sub_material'):
+            name_display = f'\u21B3 {item_name}'
+
+        max_text_w = text_region_w - 4
+        text_w, _ = ctx.calc_text_size(name_display)
+        if text_w > max_text_w:
+            truncated = name_display
+            while len(truncated) > 1:
+                truncated = truncated[:-1]
+                truncated_w, _ = ctx.calc_text_size(truncated + '\u2026')
+                if truncated_w <= max_text_w:
+                    name_display = truncated + '\u2026'
+                    text_w = truncated_w
+                    break
+            else:
+                name_display = '\u2026'
+                text_w, _ = ctx.calc_text_size(name_display)
+
+        offset_x = max((text_region_w - text_w) * 0.5, 0.0)
+        cached = (name_display, offset_x)
+        if len(self.__label_layout_cache) > 4096:
+            self.__label_layout_cache.clear()
+        self.__label_layout_cache[cache_key] = cached
+        return cached
 
     def _get_thumbnail(self, file_path: str, size: float, cached_mtime_ns=None) -> int:
         """Return an ImGui texture id for a low-res thumbnail, or 0.
@@ -620,37 +938,7 @@ class ProjectPanel(EditorPanel):
                 self.__thumbnail_cache[file_path] = (tex_id, cached_mtime_ns)
                 return tex_id
 
-        # 3. Pixel cache (from background pre-loader) — only a GPU upload needed
-        cached_pixels = _thumb_pixel_cache.get(file_path, cached_mtime_ns)
-        if cached_pixels is not None:
-            pixels, w, h = cached_pixels
-            tex_id = native_engine.upload_texture_for_imgui(
-                thumbnail_name, pixels, w, h)
-            if tex_id != 0:
-                self.__thumbnail_cache[file_path] = (tex_id, cached_mtime_ns)
-            return tex_id
-
-        # 4. Foreground load (pixel cache miss) — throttled to 2 per frame
-        if not hasattr(self, '_thumbnails_loaded_this_frame'):
-            self._thumbnails_loaded_this_frame = 0
-        if self._thumbnails_loaded_this_frame >= 2:
-            return 0
-
-        try:
-            pixels, w, h = _downsample_texture(file_path, self.THUMBNAIL_MAX_PX)
-        except Exception:
-            return 0
-
-        # Store in pixel cache so future visits are instant
-        _thumb_pixel_cache.put(file_path, pixels, w, h, cached_mtime_ns)
-
-        tex_id = native_engine.upload_texture_for_imgui(
-            thumbnail_name, pixels, w, h)
-        if tex_id != 0:
-            self.__thumbnail_cache[file_path] = (tex_id, cached_mtime_ns)
-            self._thumbnails_loaded_this_frame += 1
-            return tex_id
-
+        self._queue_thumbnail_request('image', file_path)
         return 0
     
     def _get_material_thumbnail(self, file_path: str, size: float, cached_mtime_ns=None) -> int:
@@ -668,18 +956,9 @@ class ProjectPanel(EditorPanel):
         if not native_engine:
             return 0
 
-        # Throttled mtime lookup — at most once per second per file
-        now = time.monotonic()
-        if not hasattr(self, '_mat_mtime_cache'):
-            self._mat_mtime_cache = {}  # path -> (mtime_ns, check_time)
-        mtime_entry = self._mat_mtime_cache.get(file_path)
-        if mtime_entry is not None and (now - mtime_entry[1]) < 1.0:
-            cached_mtime_ns = mtime_entry[0]
-        else:
-            if not os.path.exists(file_path):
-                return 0
-            cached_mtime_ns = self._get_mtime_ns(file_path)
-            self._mat_mtime_cache[file_path] = (cached_mtime_ns, now)
+        cached_mtime_ns = self._get_material_mtime_ns(file_path)
+        if cached_mtime_ns is None:
+            return 0
 
         # 1. Python-side GPU-id cache — valid only if mtime matches
         if file_path in self.__thumbnail_cache:
@@ -692,22 +971,8 @@ class ProjectPanel(EditorPanel):
                     native_engine.remove_imgui_texture(thumbnail_name)
                 del self.__thumbnail_cache[file_path]
         
-        # 2. CPU-render (throttled to avoid stalling the frame)
-        if not hasattr(self, '_thumbnails_loaded_this_frame'):
-            self._thumbnails_loaded_this_frame = 0
-        if self._thumbnails_loaded_this_frame >= 2:
-            return 0
-
-        pixels = native_engine.render_material_preview_pixels(file_path, self.THUMBNAIL_MAX_PX)
-        if pixels is None:
-            return 0
-
-        sq = self.THUMBNAIL_MAX_PX
-        tex_id = native_engine.upload_texture_for_imgui(thumbnail_name, pixels, sq, sq)
-        if tex_id != 0:
-            self.__thumbnail_cache[file_path] = (tex_id, cached_mtime_ns)
-            self._thumbnails_loaded_this_frame += 1
-        return tex_id
+        self._queue_thumbnail_request('material', file_path)
+        return 0
 
     def invalidate_material_thumbnail(self, file_path: str) -> None:
         """Drop cached preview state for a material so the next frame re-renders it."""
@@ -731,14 +996,12 @@ class ProjectPanel(EditorPanel):
                     pass
             self.__thumbnail_cache.pop(cached_path, None)
 
-        mtime_cache = getattr(self, "_mat_mtime_cache", None)
-        if isinstance(mtime_cache, dict):
-            cached_paths = [
-                path for path in list(mtime_cache.keys())
-                if self._normalize_path(path) == target_path
-            ]
-            for cached_path in cached_paths:
-                mtime_cache.pop(cached_path, None)
+        cached_paths = [
+            path for path in list(self.__material_mtime_cache.keys())
+            if self._normalize_path(path) == target_path
+        ]
+        for cached_path in cached_paths:
+            self.__material_mtime_cache.pop(cached_path, None)
 
     def _reset_frame_counters(self):
         """Reset per-frame counters. Call at start of on_render."""
@@ -1276,36 +1539,33 @@ class ProjectPanel(EditorPanel):
             
             ctx.end_popup()
     
-    def _render_folder_tree(self, ctx: InxGUIContext, path: str, depth: int = 0):
+    def _render_folder_tree(self, ctx: InxGUIContext, path: str, depth: int = 0, snapshot=None):
         """Recursively render folder tree."""
-        snapshot = self._get_dir_snapshot(path)
+        if snapshot is None:
+            snapshot = self._get_dir_snapshot(path)
         if snapshot is None:
             return
         dirs = snapshot['dirs']
 
         for d in dirs:
             full_path = d['path']
-            is_selected = self.__current_path == full_path
+            node_flags = (ImGuiTreeNodeFlags.OpenOnArrow
+                          | ImGuiTreeNodeFlags.SpanAvailWidth
+                          | ImGuiTreeNodeFlags.FramePadding)
+            if self.__current_path == full_path:
+                node_flags |= ImGuiTreeNodeFlags.Selected
 
-            # Check if folder has subfolders
-            sub_snapshot = self._get_dir_snapshot(full_path)
-            sub_dirs = sub_snapshot['dirs'] if sub_snapshot else []
+            dir_meta = self._get_dir_tree_meta(full_path)
+            has_subdirs = bool(dir_meta and dir_meta.get('has_subdirs'))
+            if not has_subdirs:
+                node_flags |= ImGuiTreeNodeFlags.Leaf | ImGuiTreeNodeFlags.NoTreePushOnOpen
 
-            if sub_dirs:
-                # Has subfolders - use tree node (arrow indicator shows expandability)
-                # ImGuiTreeNodeFlags_OpenOnArrow = 32, click arrow to expand, click label to select
-                node_label = f"{d['name']}##{full_path}"
-                node_open = ctx.tree_node(node_label)
-                # Check if item was clicked (not just arrow) - select this folder
-                if ctx.is_item_clicked():
-                    self.__current_path = full_path
-                if node_open:
-                    self._render_folder_tree(ctx, full_path, depth + 1)
-                    ctx.tree_pop()
-            else:
-                # No subfolders - use selectable (leaf node)
-                if ctx.selectable(f"{d['name']}##{full_path}", is_selected):
-                    self.__current_path = full_path
+            node_open = ctx.tree_node_ex(f"{d['name']}##{full_path}", node_flags)
+            if ctx.is_item_clicked():
+                self.__current_path = full_path
+            if has_subdirs and node_open:
+                self._render_folder_tree(ctx, full_path, depth + 1)
+                ctx.tree_pop()
     
     def _get_file_type(self, filename: str) -> str:
         return project_utils.get_file_type(filename)
@@ -1320,6 +1580,8 @@ class ProjectPanel(EditorPanel):
     def _pre_render(self, ctx):
         self._reset_frame_counters()
         self._ensure_type_icons_loaded()
+        self._process_pending_thumbnail_requests()
+        self._get_grid_text_line_height(ctx)
         if self.__current_path != self.__last_notified_current_path:
             self.__last_notified_current_path = self.__current_path
             self._notify_state_changed()
@@ -1340,16 +1602,20 @@ class ProjectPanel(EditorPanel):
             tree_width = 200
             if ctx.begin_child("FolderTree", tree_width, 0, False):
                 # Show entire project root in tree
-                if self.__root_path and os.path.exists(self.__root_path):
+                root_snapshot = self._get_dir_snapshot(self.__root_path) if self.__root_path else None
+                if root_snapshot is not None:
                     project_name = os.path.basename(self.__root_path)
-                    is_root_selected = self.__current_path == self.__root_path
-                    # Root node - click to select, arrow to expand
+                    root_flags = (ImGuiTreeNodeFlags.OpenOnArrow
+                                  | ImGuiTreeNodeFlags.SpanAvailWidth
+                                  | ImGuiTreeNodeFlags.FramePadding)
+                    if self.__current_path == self.__root_path:
+                        root_flags |= ImGuiTreeNodeFlags.Selected
                     ctx.set_next_item_open(True, Theme.COND_FIRST_USE_EVER)
-                    node_open = ctx.tree_node(f"{project_name}##{self.__root_path}")
+                    node_open = ctx.tree_node_ex(f"{project_name}##{self.__root_path}", root_flags)
                     if ctx.is_item_clicked():
                         self.__current_path = self.__root_path
                     if node_open:
-                        self._render_folder_tree(ctx, self.__root_path)
+                        self._render_folder_tree(ctx, self.__root_path, snapshot=root_snapshot)
                         ctx.tree_pop()
                 else:
                     ctx.label(t("project.no_project_path"))
@@ -1371,42 +1637,10 @@ class ProjectPanel(EditorPanel):
             if ctx.begin_child("FileGrid", 0, 0, True):
                 # Right-click context menu for creating items
                 self._render_context_menu(ctx)
-                
-                if self.__current_path and os.path.exists(self.__current_path):
-                    snapshot = self._get_dir_snapshot(self.__current_path)
-                    items = snapshot['items'] if snapshot else []
 
-                    # Inject virtual sub-asset items for expanded model files
-                    if self.__expanded_models:
-                        _augmented = []
-                        for _it in items:
-                            _augmented.append(_it)
-                            if (_it['type'] == 'file'
-                                    and _it.get('ext', '') in self.MODEL_EXTENSIONS
-                                    and _it['path'] in self.__expanded_models):
-                                _sub = self._get_model_sub_assets(_it['path'])
-                                if _sub:
-                                    for _si, _sm in enumerate(_sub['submeshes']):
-                                        _tri = _sm.get('index_count', 0) // 3
-                                        _vtx = _sm.get('vertex_count', 0)
-                                        _augmented.append({
-                                            'type': 'sub_mesh',
-                                            'name': (_sm.get('name', '') or f'SubMesh {_si}')
-                                                   + f'  ({_tri} tris, {_vtx} verts)',
-                                            'path': f"{_it['path']}##sub_mesh_{_si}",
-                                            'parent_path': _it['path'],
-                                            'ext': '', 'mtime_ns': None,
-                                        })
-                                    for _mi, _mn in enumerate(_sub['slot_names']):
-                                        _augmented.append({
-                                            'type': 'sub_material',
-                                            'name': _mn or f'Material {_mi}',
-                                            'path': f"{_it['path']}##sub_mat_{_mi}",
-                                            'parent_path': _it['path'],
-                                            'ext': '', 'mtime_ns': None,
-                                            'slot_index': _mi,
-                                        })
-                        items = _augmented
+                current_snapshot = self._get_dir_snapshot(self.__current_path) if self.__current_path else None
+                if current_snapshot is not None:
+                    items = self._get_project_items(self.__current_path, current_snapshot) or []
 
                     # Back button — stop at direct children of root (Assets, Logs, etc.)
                     parent = os.path.dirname(self.__current_path)
@@ -1415,12 +1649,13 @@ class ProjectPanel(EditorPanel):
                             self.__current_path = parent
 
                     # Grid config
-                    icon_size = 64
-                    padding = 10
+                    icon_size = _FILE_GRID_ICON_SIZE
+                    padding = _FILE_GRID_PADDING
                     cell_width = icon_size + padding
                     avail_w = ctx.get_content_region_avail_width()
                     cols = int(avail_w / cell_width)
                     if cols < 1: cols = 1
+                    row_height = icon_size + self._get_grid_text_line_height(ctx) + padding + 8.0
 
                     if not items and self.__current_path == self.__root_path:
                         ctx.label(t("project.empty_folder"))
@@ -1454,10 +1689,39 @@ class ProjectPanel(EditorPanel):
                     # Handle external file drops from Windows Explorer
                     self._handle_external_file_drops()
 
+
+                    grid_start_y = ctx.get_cursor_pos_y()
                     if ctx.begin_table("FileGrid", cols, 0, 0.0):
                         self._visible_items = items  # Store for shift-range
                         _sel_set = set(self.__selected_files)
-                        for item in items:
+                        start_index, end_index, top_spacer_h, bottom_spacer_h = self._get_visible_grid_range(
+                            ctx, len(items), cols, row_height, grid_start_y)
+
+                        if top_spacer_h > 0.0:
+                            ctx.table_next_row()
+                            ctx.table_set_column_index(0)
+                            ctx.dummy(1.0, top_spacer_h)
+                            ctx.table_next_row()
+
+                        # ── Style push ONCE for all icon buttons ──
+                        ctx.push_style_var_vec2(ImGuiStyleVar.FramePadding, *Theme.ICON_BTN_NO_PAD)
+                        Theme.push_unselected_icon_style(ctx)  # 2 colours + 1 var(FrameBorderSize)
+
+                        # Pre-fetch extension sets as locals for inner loop speed
+                        _IMAGE_EXT = self.IMAGE_EXTENSIONS
+                        _MAT_EXT = self.MATERIAL_EXTENSIONS
+                        _MODEL_EXT = self.MODEL_EXTENSIONS
+                        _type_icon_cache = self.__type_icon_cache
+                        _expanded = self.__expanded_models
+                        _renaming_path = self.__renaming_path
+                        _get_thumbnail = self._get_thumbnail
+                        _get_mat_thumbnail = self._get_material_thumbnail
+                        _get_type_icon_id = self._get_type_icon_id
+                        _handle_click = self._handle_item_click
+                        _get_cached_label = self._get_cached_item_label
+                        _sel_r, _sel_g, _sel_b, _sel_a = Theme.BTN_SELECTED
+
+                        for item in items[start_index:end_index]:
                             ctx.table_next_column()
                             ctx.begin_group()
 
@@ -1467,65 +1731,49 @@ class ProjectPanel(EditorPanel):
                             ext = item.get('ext', '')
                             is_selected = item_path in _sel_set
                             cell_start_x = ctx.get_cursor_pos_x()
-                            text_region_w = icon_size
 
-                            # Check if this is an image file that can have a thumbnail
-                            thumbnail_id = 0
-                            if item_type == 'file' and ext in self.IMAGE_EXTENSIONS:
-                                thumbnail_id = self._get_thumbnail(
-                                    item_path, icon_size, item.get('mtime_ns'))
-                            elif item_type == 'file' and ext in self.MATERIAL_EXTENSIONS:
-                                # Always stat fresh — dir mtime may not change on overwrite
-                                thumbnail_id = self._get_material_thumbnail(
-                                    item_path, icon_size)
-
-                            # Determine which texture to show for the cell
+                            # Resolve display texture
                             if item_type == 'sub_mesh':
-                                display_tex_id = self.__type_icon_cache.get('model_3d', 0)
+                                display_tex_id = _type_icon_cache.get('model_3d', 0)
                             elif item_type == 'sub_material':
-                                display_tex_id = self.__type_icon_cache.get('material', 0)
-                            else:
-                                display_tex_id = thumbnail_id
+                                display_tex_id = _type_icon_cache.get('material', 0)
+                            elif item_type == 'file':
+                                if ext in _IMAGE_EXT:
+                                    display_tex_id = _get_thumbnail(item_path, icon_size, item.get('mtime_ns'))
+                                elif ext in _MAT_EXT:
+                                    display_tex_id = _get_mat_thumbnail(item_path, icon_size)
+                                else:
+                                    display_tex_id = 0
                                 if display_tex_id == 0:
-                                    display_tex_id = self._get_type_icon_id(item_type, ext)
+                                    display_tex_id = _get_type_icon_id(item_type, ext)
+                            else:
+                                display_tex_id = _get_type_icon_id(item_type, ext)
 
                             if display_tex_id != 0:
-                                # Render clickable icon image
-                                # Zero out FramePadding so the image is centered in the cell
-                                ctx.push_style_var_vec2(ImGuiStyleVar.FramePadding, *Theme.ICON_BTN_NO_PAD)
-                                # Always draw as ghost button (transparent bg) so icon is clean
-                                Theme.push_unselected_icon_style(ctx)  # 2 colours + 1 var
+                                # Icon button (styles already pushed outside loop)
                                 if ctx.image_button(f"##icon_{item_path}", display_tex_id, icon_size, icon_size):
-                                    self._handle_item_click(item, ctx)
-                                # Right-click on item → select it (so context menu acts on it)
+                                    _handle_click(item, ctx)
                                 if ctx.is_item_clicked(1):
                                     self.__selected_file = item_path
                                     if item_path not in self.__selected_files:
                                         self.__selected_files = [item_path]
                                     self._notify_selection_changed()
-                                # Draw selection overlay ON TOP of the icon
                                 if is_selected:
-                                    rx0 = ctx.get_item_rect_min_x()
-                                    ry0 = ctx.get_item_rect_min_y()
-                                    rx1 = ctx.get_item_rect_max_x()
-                                    ry1 = ctx.get_item_rect_max_y()
-                                    ctx.draw_filled_rect(rx0, ry0, rx1, ry1, *Theme.BTN_SELECTED, 0.0)
-                                ctx.pop_style_color(2)
-                                ctx.pop_style_var(1)  # FrameBorderSize
-                                ctx.pop_style_var(1)  # FramePadding
+                                    ctx.draw_filled_rect(
+                                        ctx.get_item_rect_min_x(), ctx.get_item_rect_min_y(),
+                                        ctx.get_item_rect_max_x(), ctx.get_item_rect_max_y(),
+                                        _sel_r, _sel_g, _sel_b, _sel_a, 0.0)
                             else:
-                                # Ultimate fallback — text label (only when icon PNGs are missing)
                                 label_icon = self._get_file_type(item_name) if item_type != 'dir' else '[DIR]'
                                 if ctx.selectable(f"{label_icon}\n##{item_path}", is_selected, 0, icon_size, icon_size):
-                                    self._handle_item_click(item, ctx)
-                                # Right-click on item → select it
+                                    _handle_click(item, ctx)
                                 if ctx.is_item_clicked(1):
                                     self.__selected_file = item_path
                                     if item_path not in self.__selected_files:
                                         self.__selected_files = [item_path]
                                     self._notify_selection_changed()
 
-                            # Drag-drop sources (map-driven)
+                            # Drag-drop source
                             if item_type == 'dir':
                                 if ctx.begin_drag_drop_source(0):
                                     ctx.set_drag_drop_payload_str(self._PROJECT_ITEM_MOVE_TYPE, item_path)
@@ -1577,13 +1825,13 @@ class ProjectPanel(EditorPanel):
                                 )
 
                             # Name or Rename Input
-                            if self.__renaming_path == item_path:
+                            if _renaming_path == item_path:
                                 if self.__rename_focus_requested:
                                     ctx.set_keyboard_focus_here()
                                     self.__rename_focus_requested = False
 
                                 ctx.set_cursor_pos_x(cell_start_x)
-                                ctx.set_next_item_width(text_region_w)
+                                ctx.set_next_item_width(icon_size)
                                 new_name = ctx.text_input(f"##rename_{item_path}", self.__renaming_name, 256)
                                 self.__renaming_name = new_name
 
@@ -1595,36 +1843,24 @@ class ProjectPanel(EditorPanel):
                                     self._do_rename()
 
                             else:
-                                name_display = item_name
-                                if item_type == 'file':
-                                    name_display = os.path.splitext(item_name)[0]
-                                    # Show expand arrow for model files
-                                    if ext in self.MODEL_EXTENSIONS:
-                                        _is_exp = item_path in self.__expanded_models
-                                        name_display += '  \u25BC' if _is_exp else '  \u25B6'
-                                elif item_type in ('sub_mesh', 'sub_material'):
-                                    name_display = f'\u21B3 {item_name}'
-
-                                # Truncate and center the name under the icon
-                                max_text_w = text_region_w - 4
-                                tw, _ = ctx.calc_text_size(name_display)
-                                if tw > max_text_w:
-                                    # Truncate with ellipsis
-                                    truncated = name_display
-                                    while len(truncated) > 1:
-                                        truncated = truncated[:-1]
-                                        tw2, _ = ctx.calc_text_size(truncated + '\u2026')
-                                        if tw2 <= max_text_w:
-                                            break
-                                    name_display = truncated + '\u2026'
-                                    tw = max_text_w
-                                # Center text
-                                offset_x = max((text_region_w - tw) * 0.5, 0.0)
+                                name_display, offset_x = _get_cached_label(ctx, item, icon_size)
                                 ctx.set_cursor_pos_x(cell_start_x + offset_x)
                                 ctx.label(name_display)
 
                             ctx.end_group()
+
+                        # ── Style pop ONCE after all items ──
+                        ctx.pop_style_color(2)   # Button, ButtonHovered
+                        ctx.pop_style_var(1)     # FrameBorderSize
+                        ctx.pop_style_var(1)     # FramePadding
+
+                        if bottom_spacer_h > 0.0:
+                            ctx.table_next_row()
+                            ctx.table_set_column_index(0)
+                            ctx.dummy(1.0, bottom_spacer_h)
+
                         ctx.end_table()
+
 
                 else:
                     ctx.label(t("project.invalid_path"))
