@@ -42,21 +42,17 @@ class VignetteEffect(FullScreenEffect):
     def setup_passes(self, graph: "RenderGraph", bus: "ResourceBus") -> None:
         from Infernux.rendergraph.graph import Format
 
-        color_in = bus.get("color")
-        if color_in is None:
-            return
-
-        _tex = self.get_or_create_texture
-
-        color_out = _tex(graph, "_vignette_out", format=Format.RGBA16_SFLOAT)
-
-        with graph.add_pass("Vignette_Apply") as p:
-            p.set_texture("_SourceTex", color_in)
-            p.write_color(color_out)
-            p.set_param("intensity", self.intensity)
-            p.set_param("smoothness", self.smoothness)
-            p.set_param("roundness", self.roundness)
-            p.set_param("rounded", 1.0 if self.rounded else 0.0)
-            p.fullscreen_quad("vignette")
-
-        bus.set("color", color_out)
+        self.apply_single_source_effect(
+            graph,
+            bus,
+            output_name="_vignette_out",
+            pass_name="Vignette_Apply",
+            shader_name="vignette",
+            format=Format.RGBA16_SFLOAT,
+            params={
+                "intensity": self.intensity,
+                "smoothness": self.smoothness,
+                "roundness": self.roundness,
+                "rounded": 1.0 if self.rounded else 0.0,
+            },
+        )

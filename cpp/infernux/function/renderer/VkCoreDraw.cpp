@@ -11,6 +11,7 @@
 #include "InxVkCoreModular.h"
 #include "ProfileConfig.h"
 #include "SceneRenderGraph.h"
+#include "vk/VkRenderUtils.h"
 #include "vk/VkTypes.h"
 
 #include <function/renderer/Frustum.h>
@@ -168,22 +169,13 @@ void InxVkCoreModular::CmdUpdateUniformBuffer(VkCommandBuffer cmdBuf, const glm:
     ubo.proj = proj;
 
     // Barrier: ensure previous shader reads from the UBO are complete
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkrender::CmdBarrierUniformReadToTransferWrite(cmdBuf);
 
     // Update the UBO inline in the command buffer
     vkCmdUpdateBuffer(cmdBuf, buffer, 0, sizeof(ubo), &ubo);
 
     // Barrier: ensure write is visible before subsequent shader reads
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    vkrender::CmdBarrierTransferWriteToUniformRead(cmdBuf);
 }
 
 void InxVkCoreModular::CmdUpdateShadowUBO(VkCommandBuffer cmdBuf)
@@ -206,12 +198,7 @@ void InxVkCoreModular::CmdUpdateShadowUBO(VkCommandBuffer cmdBuf)
         glm::mat4 proj;
     };
 
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkrender::CmdBarrierUniformReadToTransferWrite(cmdBuf);
 
     for (uint32_t ci = 0; ci < cascadeCount; ++ci) {
         uint32_t bufIdx = frameIndex * NUM_SHADOW_CASCADES + ci;
@@ -230,11 +217,7 @@ void InxVkCoreModular::CmdUpdateShadowUBO(VkCommandBuffer cmdBuf)
         vkCmdUpdateBuffer(cmdBuf, shadowBuffer, 0, sizeof(ShadowUBO), &shadowUbo);
     }
 
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    vkrender::CmdBarrierTransferWriteToUniformRead(cmdBuf);
 }
 
 // ============================================================================
@@ -957,16 +940,7 @@ bool InxVkCoreModular::EnsureShadowPipeline(VkRenderPass /*compatibleRenderPass*
         subpass.colorAttachmentCount = 0;
         subpass.pDepthStencilAttachment = &depthRef;
 
-        VkSubpassDependency dependency{};
-        dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-        dependency.dstSubpass = 0;
-        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                  VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                                  VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        dependency.dstStageMask =
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        const VkSubpassDependency dependency = vkrender::MakePipelineCompatibleSubpassDependency();
 
         VkRenderPassCreateInfo rpInfo{};
         rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;

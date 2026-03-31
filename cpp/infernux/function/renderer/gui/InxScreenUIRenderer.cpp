@@ -17,15 +17,35 @@
 
 #include "InxScreenUIRenderer.h"
 #include "InxTextLayout.h"
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <core/log/InxLog.h>
+#include <cstring>
+#include <function/renderer/vk/VkRenderUtils.h>
 #include <imgui_internal.h> // for ImGui::GetDrawListSharedData()
+#include <type_traits>
 
 namespace infernux
 {
 
 namespace
 {
+constexpr float kTransformRotationEpsilon = 0.001f;
+constexpr float kPi = 3.14159265358979f;
+constexpr const char *kShaderEntryPoint = "main";
+constexpr uint32_t kFontTextureBinding = 0;
+
+struct VertexTransform
+{
+    ImVec2 pivot{};
+    float cosAngle = 1.0f;
+    float sinAngle = 0.0f;
+    bool mirrorH = false;
+    bool mirrorV = false;
+    bool enabled = false;
+};
+
 float ResolveFontSize(float fontSize)
 {
     return textlayout::ResolveFontSize(fontSize);
@@ -50,6 +70,349 @@ ImTextureID ToImTextureID(uint64_t textureId)
         return (ImTextureID)(static_cast<uintptr_t>(textureId));
     }
     return static_cast<ImTextureID>(textureId);
+}
+
+void ResetDrawListForFrame(ImDrawList &drawList, uint32_t width, uint32_t height)
+{
+    drawList._ResetForNewFrame();
+    drawList.PushTextureID(ImGui::GetIO().Fonts->TexRef.GetTexID());
+    drawList.PushClipRect(ImVec2(0.0f, 0.0f), ImVec2(static_cast<float>(width), static_cast<float>(height)));
+}
+
+float NormalizeRotationDegrees(float rotation)
+{
+    rotation = std::fmod(rotation, 360.0f);
+    if (rotation < 0.0f)
+        rotation += 360.0f;
+    return rotation;
+}
+
+VertexTransform MakeVertexTransform(float minX, float minY, float maxX, float maxY, float rotation, bool mirrorH,
+                                    bool mirrorV)
+{
+    rotation = NormalizeRotationDegrees(rotation);
+
+    VertexTransform transform{};
+    transform.enabled = mirrorH || mirrorV || std::fabs(rotation) >= kTransformRotationEpsilon;
+    if (!transform.enabled) {
+        return transform;
+    }
+
+    const float radians = rotation * kPi / 180.0f;
+    transform.pivot = ImVec2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
+    transform.cosAngle = std::cos(radians);
+    transform.sinAngle = std::sin(radians);
+    transform.mirrorH = mirrorH;
+    transform.mirrorV = mirrorV;
+    return transform;
+}
+
+void ApplyVertexTransform(ImDrawList &drawList, int vertexStart, const VertexTransform &transform)
+{
+    if (!transform.enabled) {
+        return;
+    }
+
+    for (int i = vertexStart; i < drawList.VtxBuffer.Size; ++i) {
+        ImVec2 local(drawList.VtxBuffer[i].pos.x - transform.pivot.x, drawList.VtxBuffer[i].pos.y - transform.pivot.y);
+        if (transform.mirrorH)
+            local.x = -local.x;
+        if (transform.mirrorV)
+            local.y = -local.y;
+
+        const float rx = local.x * transform.cosAngle - local.y * transform.sinAngle;
+        const float ry = local.x * transform.sinAngle + local.y * transform.cosAngle;
+        drawList.VtxBuffer[i].pos = ImVec2(transform.pivot.x + rx, transform.pivot.y + ry);
+    }
+}
+
+bool RefreshFontDescriptorSet(VkDescriptorSet &descriptorSet)
+{
+    const ImTextureID texId = ImGui::GetIO().Fonts->TexRef.GetTexID();
+    if (texId == 0) {
+        return false;
+    }
+
+    descriptorSet = reinterpret_cast<VkDescriptorSet>(static_cast<uintptr_t>(texId));
+    return true;
+}
+
+VkAttachmentDescription MakeColorAttachmentDescription(VkFormat format, VkSampleCountFlagBits samples,
+                                                       VkImageLayout finalLayout)
+{
+    VkAttachmentDescription attachment{};
+    attachment.format = format;
+    attachment.samples = samples;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment.finalLayout = finalLayout;
+    return attachment;
+}
+
+VkAttachmentReference MakeColorAttachmentReference(uint32_t attachmentIndex = 0)
+{
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = attachmentIndex;
+    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    return colorRef;
+}
+
+VkSubpassDescription MakeSingleColorSubpass(const VkAttachmentReference &colorRef)
+{
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorRef;
+    return subpass;
+}
+
+VkViewport MakeViewport(uint32_t width, uint32_t height)
+{
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(width);
+    viewport.height = static_cast<float>(height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    return viewport;
+}
+
+std::array<float, 4> MakeOrthoPushConstants(uint32_t width, uint32_t height)
+{
+    return {
+        2.0f / static_cast<float>(width),
+        2.0f / static_cast<float>(height),
+        -1.0f,
+        -1.0f,
+    };
+}
+
+bool MakeClampedScissor(const ImDrawCmd &cmd, float frameWidth, float frameHeight, VkRect2D &outScissor)
+{
+    const float clipMinX = std::clamp(cmd.ClipRect.x, 0.0f, frameWidth);
+    const float clipMinY = std::clamp(cmd.ClipRect.y, 0.0f, frameHeight);
+    const float clipMaxX = std::clamp(cmd.ClipRect.z, 0.0f, frameWidth);
+    const float clipMaxY = std::clamp(cmd.ClipRect.w, 0.0f, frameHeight);
+    if (clipMaxX <= clipMinX || clipMaxY <= clipMinY) {
+        return false;
+    }
+
+    outScissor.offset.x = static_cast<int32_t>(clipMinX);
+    outScissor.offset.y = static_cast<int32_t>(clipMinY);
+    outScissor.extent.width = static_cast<uint32_t>(clipMaxX - clipMinX);
+    outScissor.extent.height = static_cast<uint32_t>(clipMaxY - clipMinY);
+    return true;
+}
+
+bool CreateShaderModule(VkDevice device, const uint32_t *code, size_t codeSize, VkShaderModule &outModule)
+{
+    VkShaderModuleCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = codeSize;
+    createInfo.pCode = code;
+
+    outModule = VK_NULL_HANDLE;
+    return vkCreateShaderModule(device, &createInfo, nullptr, &outModule) == VK_SUCCESS;
+}
+
+bool CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout,
+                          const VkPushConstantRange &pushConstantRange, VkPipelineLayout &outLayout)
+{
+    VkPipelineLayoutCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    createInfo.setLayoutCount = 1;
+    createInfo.pSetLayouts = &descriptorSetLayout;
+    createInfo.pushConstantRangeCount = 1;
+    createInfo.pPushConstantRanges = &pushConstantRange;
+
+    outLayout = VK_NULL_HANDLE;
+    return vkCreatePipelineLayout(device, &createInfo, nullptr, &outLayout) == VK_SUCCESS;
+}
+
+VkPushConstantRange MakeVertexPushConstantRange(uint32_t size)
+{
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushConstantRange.size = size;
+    return pushConstantRange;
+}
+
+VkPipelineShaderStageCreateInfo MakeShaderStageInfo(VkShaderStageFlagBits stage, VkShaderModule shaderModule)
+{
+    VkPipelineShaderStageCreateInfo stageInfo{};
+    stageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stageInfo.stage = stage;
+    stageInfo.module = shaderModule;
+    stageInfo.pName = kShaderEntryPoint;
+    return stageInfo;
+}
+
+VkPipelineVertexInputStateCreateInfo MakeVertexInputState(const VkVertexInputBindingDescription &bindingDesc,
+                                                          const VkVertexInputAttributeDescription *attrDesc,
+                                                          uint32_t attrCount)
+{
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &bindingDesc;
+    vertexInput.vertexAttributeDescriptionCount = attrCount;
+    vertexInput.pVertexAttributeDescriptions = attrDesc;
+    return vertexInput;
+}
+
+VkPipelineInputAssemblyStateCreateInfo MakeTriangleListInputAssembly()
+{
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    return inputAssembly;
+}
+
+VkPipelineViewportStateCreateInfo MakeDynamicViewportState()
+{
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+    return viewportState;
+}
+
+VkPipelineRasterizationStateCreateInfo MakeRasterizationState()
+{
+    VkPipelineRasterizationStateCreateInfo rasterization{};
+    rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization.cullMode = VK_CULL_MODE_NONE;
+    rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterization.lineWidth = 1.0f;
+    return rasterization;
+}
+
+VkPipelineMultisampleStateCreateInfo MakeMultisampleState(VkSampleCountFlagBits samples)
+{
+    VkPipelineMultisampleStateCreateInfo multisample{};
+    multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisample.rasterizationSamples = samples;
+    return multisample;
+}
+
+VkPipelineColorBlendAttachmentState MakeAlphaBlendAttachment()
+{
+    VkPipelineColorBlendAttachmentState attachment{};
+    attachment.blendEnable = VK_TRUE;
+    attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    attachment.colorBlendOp = VK_BLEND_OP_ADD;
+    attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    attachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    return attachment;
+}
+
+VkPipelineColorBlendStateCreateInfo MakeColorBlendState(const VkPipelineColorBlendAttachmentState &attachment)
+{
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments = &attachment;
+    return colorBlend;
+}
+
+VkPipelineDepthStencilStateCreateInfo MakeDisabledDepthStencilState()
+{
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    return depthStencil;
+}
+
+VkPipelineDynamicStateCreateInfo MakeDynamicStateInfo(const VkDynamicState *dynamicStates, uint32_t dynamicStateCount)
+{
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = dynamicStateCount;
+    dynamicState.pDynamicStates = dynamicStates;
+    return dynamicState;
+}
+
+bool UploadAllocation(VmaAllocator allocator, VmaAllocation allocation, const void *data, size_t size)
+{
+    if (size == 0) {
+        return true;
+    }
+
+    void *mappedData = nullptr;
+    if (vmaMapMemory(allocator, allocation, &mappedData) != VK_SUCCESS || mappedData == nullptr) {
+        return false;
+    }
+
+    std::memcpy(mappedData, data, size);
+    vmaUnmapMemory(allocator, allocation);
+    return true;
+}
+
+VkDeviceSize GrowBufferSize(VkDeviceSize requiredSize)
+{
+    return requiredSize + (requiredSize >> 1);
+}
+
+void DestroyBufferWithQueue(VmaAllocator allocator, FrameDeletionQueue *deletionQueue, VkBuffer &buffer,
+                            VmaAllocation &allocation, VkDeviceSize &bufferSize)
+{
+    if (buffer == VK_NULL_HANDLE) {
+        allocation = VK_NULL_HANDLE;
+        bufferSize = 0;
+        return;
+    }
+
+    if (deletionQueue != nullptr) {
+        const VkBuffer oldBuffer = buffer;
+        const VmaAllocation oldAllocation = allocation;
+        deletionQueue->Push(
+            [allocator, oldBuffer, oldAllocation]() { vmaDestroyBuffer(allocator, oldBuffer, oldAllocation); });
+    } else {
+        vmaDestroyBuffer(allocator, buffer, allocation);
+    }
+
+    buffer = VK_NULL_HANDLE;
+    allocation = VK_NULL_HANDLE;
+    bufferSize = 0;
+}
+
+bool EnsureHostVisibleBuffer(VmaAllocator allocator, FrameDeletionQueue *deletionQueue, VkBufferUsageFlags usage,
+                             VkBuffer &buffer, VmaAllocation &allocation, VkDeviceSize &bufferSize,
+                             VkDeviceSize requiredSize)
+{
+    if (requiredSize == 0) {
+        return true;
+    }
+    if (buffer != VK_NULL_HANDLE && bufferSize >= requiredSize) {
+        return true;
+    }
+
+    DestroyBufferWithQueue(allocator, deletionQueue, buffer, allocation, bufferSize);
+
+    VkBufferCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    createInfo.size = GrowBufferSize(requiredSize);
+    createInfo.usage = usage;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+    if (vmaCreateBuffer(allocator, &createInfo, &allocInfo, &buffer, &allocation, nullptr) != VK_SUCCESS) {
+        buffer = VK_NULL_HANDLE;
+        allocation = VK_NULL_HANDLE;
+        bufferSize = 0;
+        return false;
+    }
+
+    bufferSize = createInfo.size;
+    return true;
 }
 } // namespace
 
@@ -204,10 +567,6 @@ void InxScreenUIRenderer::Destroy()
             vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         if (m_descriptorSetLayout)
             vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
-        if (m_fontSampler)
-            vkDestroySampler(m_device, m_fontSampler, nullptr);
-        if (m_descriptorPool)
-            vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
         if (m_renderPass)
             vkDestroyRenderPass(m_device, m_renderPass, nullptr);
         if (m_vertShader)
@@ -221,9 +580,7 @@ void InxScreenUIRenderer::Destroy()
     m_pipeline = VK_NULL_HANDLE;
     m_pipelineLayout = VK_NULL_HANDLE;
     m_descriptorSetLayout = VK_NULL_HANDLE;
-    m_fontSampler = VK_NULL_HANDLE;
     m_fontDescriptorSet = VK_NULL_HANDLE;
-    m_descriptorPool = VK_NULL_HANDLE;
     m_renderPass = VK_NULL_HANDLE;
     m_vertShader = VK_NULL_HANDLE;
     m_fragShader = VK_NULL_HANDLE;
@@ -241,19 +598,11 @@ void InxScreenUIRenderer::BeginFrame(uint32_t width, uint32_t height)
     if (!m_initialized)
         return;
 
-    m_frameWidth = width;
-    m_frameHeight = height;
     m_cameraHDRRanges.clear();
     m_overlayHDRRanges.clear();
 
-    // Reset draw lists for new frame
-    m_cameraDrawList->_ResetForNewFrame();
-    m_cameraDrawList->PushTextureID(ImGui::GetIO().Fonts->TexID);
-    m_cameraDrawList->PushClipRect(ImVec2(0, 0), ImVec2(static_cast<float>(width), static_cast<float>(height)));
-
-    m_overlayDrawList->_ResetForNewFrame();
-    m_overlayDrawList->PushTextureID(ImGui::GetIO().Fonts->TexID);
-    m_overlayDrawList->PushClipRect(ImVec2(0, 0), ImVec2(static_cast<float>(width), static_cast<float>(height)));
+    ResetDrawListForFrame(*m_cameraDrawList, width, height);
+    ResetDrawListForFrame(*m_overlayDrawList, width, height);
 }
 
 void InxScreenUIRenderer::AddFilledRect(ScreenUIList list, float minX, float minY, float maxX, float maxY, float r,
@@ -276,9 +625,11 @@ void InxScreenUIRenderer::AddImage(ScreenUIList list, uint64_t textureId, float 
     ImDrawList *dl = GetDrawList(list);
     if (!dl || textureId == 0)
         return;
+
     const int vtxStart = dl->VtxBuffer.Size;
     const float hdrScale = ExtractHDRScale(r, g, b);
     ImU32 tint = ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, a));
+    const VertexTransform transform = MakeVertexTransform(minX, minY, maxX, maxY, rotation, mirrorH, mirrorV);
     if (rounding > 0.5f)
         dl->AddImageRounded(ToImTextureID(textureId), ImVec2(minX, minY), ImVec2(maxX, maxY), ImVec2(uv0X, uv0Y),
                             ImVec2(uv1X, uv1Y), tint, rounding);
@@ -286,28 +637,7 @@ void InxScreenUIRenderer::AddImage(ScreenUIList list, uint64_t textureId, float 
         dl->AddImage(ToImTextureID(textureId), ImVec2(minX, minY), ImVec2(maxX, maxY), ImVec2(uv0X, uv0Y),
                      ImVec2(uv1X, uv1Y), tint);
 
-    rotation = std::fmod(rotation, 360.0f);
-    if (rotation < 0.0f)
-        rotation += 360.0f;
-    if ((std::fabs(rotation) < 0.001f) && !mirrorH && !mirrorV) {
-        TrackHDRColorRange(list, vtxStart, dl->VtxBuffer.Size, hdrScale);
-        return;
-    }
-
-    const float radians = rotation * 3.14159265358979f / 180.0f;
-    const float cosA = std::cos(radians);
-    const float sinA = std::sin(radians);
-    const ImVec2 pivot((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
-    for (int i = vtxStart; i < dl->VtxBuffer.Size; ++i) {
-        ImVec2 local(dl->VtxBuffer[i].pos.x - pivot.x, dl->VtxBuffer[i].pos.y - pivot.y);
-        if (mirrorH)
-            local.x = -local.x;
-        if (mirrorV)
-            local.y = -local.y;
-        const float rx = local.x * cosA - local.y * sinA;
-        const float ry = local.x * sinA + local.y * cosA;
-        dl->VtxBuffer[i].pos = ImVec2(pivot.x + rx, pivot.y + ry);
-    }
+    ApplyVertexTransform(*dl, vtxStart, transform);
     TrackHDRColorRange(list, vtxStart, dl->VtxBuffer.Size, hdrScale);
 }
 
@@ -322,40 +652,16 @@ void InxScreenUIRenderer::AddText(ScreenUIList list, float minX, float minY, flo
 
     const textlayout::TextLayoutResult layout =
         textlayout::LayoutText({text, fontPath, ResolveFontSize(fontSize), wrapWidth, lineHeight, letterSpacing});
-    ImVec2 textSize(layout.totalWidth, layout.totalHeight);
-
-    float boxW = maxX - minX;
-    float boxH = maxY - minY;
 
     const float hdrScale = ExtractHDRScale(r, g, b);
     ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(r, g, b, a));
     const int vtxStart = dl->VtxBuffer.Size;
+    const VertexTransform transform = MakeVertexTransform(minX, minY, maxX, maxY, rotation, mirrorH, mirrorV);
     dl->PushTextureID(ImGui::GetIO().Fonts->TexRef);
     textlayout::RenderTextBox(dl, minX, minY, maxX, maxY, layout, col, alignX, alignY, letterSpacing);
     dl->PopTextureID();
 
-    rotation = std::fmod(rotation, 360.0f);
-    if (rotation < 0.0f)
-        rotation += 360.0f;
-    if ((std::fabs(rotation) < 0.001f) && !mirrorH && !mirrorV) {
-        TrackHDRColorRange(list, vtxStart, dl->VtxBuffer.Size, hdrScale);
-        return;
-    }
-
-    const float radians = rotation * 3.14159265358979f / 180.0f;
-    const float cosA = std::cos(radians);
-    const float sinA = std::sin(radians);
-    const ImVec2 pivot((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
-    for (int i = vtxStart; i < dl->VtxBuffer.Size; ++i) {
-        ImVec2 local(dl->VtxBuffer[i].pos.x - pivot.x, dl->VtxBuffer[i].pos.y - pivot.y);
-        if (mirrorH)
-            local.x = -local.x;
-        if (mirrorV)
-            local.y = -local.y;
-        const float rx = local.x * cosA - local.y * sinA;
-        const float ry = local.x * sinA + local.y * cosA;
-        dl->VtxBuffer[i].pos = ImVec2(pivot.x + rx, pivot.y + ry);
-    }
+    ApplyVertexTransform(*dl, vtxStart, transform);
     TrackHDRColorRange(list, vtxStart, dl->VtxBuffer.Size, hdrScale);
 }
 
@@ -407,20 +713,14 @@ void InxScreenUIRenderer::Render(VkCommandBuffer cmdBuf, ScreenUIList list, uint
     if (!dl || dl->VtxBuffer.Size == 0 || dl->IdxBuffer.Size == 0)
         return;
 
-    // ---- Refresh font atlas descriptor set ----
     // With ImGui 1.92+ dynamic font atlas, the texture may be recreated
-    // at any time (new glyphs loaded, atlas resized). We must always use
-    // the latest descriptor set from the current atlas texture.
-    {
-        ImTextureID texId = ImGui::GetIO().Fonts->TexRef.GetTexID();
-        if (texId == 0)
-            return; // Font atlas not yet uploaded
-        m_fontDescriptorSet = reinterpret_cast<VkDescriptorSet>(static_cast<uintptr_t>(texId));
+    // at any time. Always pull the current descriptor set before drawing.
+    if (!RefreshFontDescriptorSet(m_fontDescriptorSet)) {
+        return;
     }
 
     // ---- Upload vertex/index data ----
-    std::vector<GPUVertex> gpuVertices;
-    gpuVertices.resize(static_cast<size_t>(dl->VtxBuffer.Size));
+    std::vector<GPUVertex> gpuVertices(static_cast<size_t>(dl->VtxBuffer.Size));
 
     const auto &hdrRanges = GetHDRRanges(list);
     size_t rangeIndex = 0;
@@ -449,49 +749,36 @@ void InxScreenUIRenderer::Render(VkCommandBuffer cmdBuf, ScreenUIList list, uint
         dst.color[3] = unpacked.w;
     }
 
-    VkDeviceSize vtxSize = gpuVertices.size() * sizeof(GPUVertex);
-    VkDeviceSize idxSize = dl->IdxBuffer.Size * sizeof(ImDrawIdx);
-    EnsureBuffers(vtxSize, idxSize);
-
-    // Map and copy vertex data
-    void *vtxDst = nullptr;
-    vmaMapMemory(m_allocator, m_vertexAlloc, &vtxDst);
-    memcpy(vtxDst, gpuVertices.data(), vtxSize);
-    vmaUnmapMemory(m_allocator, m_vertexAlloc);
-
-    void *idxDst = nullptr;
-    vmaMapMemory(m_allocator, m_indexAlloc, &idxDst);
-    memcpy(idxDst, dl->IdxBuffer.Data, idxSize);
-    vmaUnmapMemory(m_allocator, m_indexAlloc);
+    const VkDeviceSize vtxSize = gpuVertices.size() * sizeof(GPUVertex);
+    const VkDeviceSize idxSize = static_cast<VkDeviceSize>(dl->IdxBuffer.Size) * sizeof(ImDrawIdx);
+    if (!EnsureBuffers(vtxSize, idxSize)) {
+        INXLOG_ERROR("InxScreenUIRenderer: Failed to resize screen UI upload buffers");
+        return;
+    }
+    if (!UploadAllocation(m_allocator, m_vertexAlloc, gpuVertices.data(), static_cast<size_t>(vtxSize)) ||
+        !UploadAllocation(m_allocator, m_indexAlloc, dl->IdxBuffer.Data, static_cast<size_t>(idxSize))) {
+        INXLOG_ERROR("InxScreenUIRenderer: Failed to upload screen UI draw data");
+        return;
+    }
 
     // ---- Bind pipeline ----
     vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
     // ---- Bind vertex/index buffers ----
-    VkBuffer vertBuffers[] = {m_vertexBuffer};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmdBuf, 0, 1, vertBuffers, offsets);
+    const VkBuffer vertexBuffer = m_vertexBuffer;
+    const VkDeviceSize vertexBufferOffset = 0;
+    vkCmdBindVertexBuffers(cmdBuf, 0, 1, &vertexBuffer, &vertexBufferOffset);
     vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0,
                          sizeof(ImDrawIdx) == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
 
-    // ---- Set viewport ----
-    VkViewport viewport{};
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = static_cast<float>(width);
-    viewport.height = static_cast<float>(height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
+    const VkViewport viewport = MakeViewport(width, height);
     vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
 
     // ---- Push constants: ortho projection (scale + translate) ----
     // Maps [0, width] x [0, height] → [-1, 1] x [-1, 1]
-    float pushConstants[4];
-    pushConstants[0] = 2.0f / static_cast<float>(width);  // scaleX
-    pushConstants[1] = 2.0f / static_cast<float>(height); // scaleY
-    pushConstants[2] = -1.0f;                             // translateX
-    pushConstants[3] = -1.0f;                             // translateY
-    vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConstants), pushConstants);
+    const auto pushConstants = MakeOrthoPushConstants(width, height);
+    vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConstants),
+                       pushConstants.data());
 
     // ---- Bind font atlas descriptor set ----
     vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_fontDescriptorSet, 0,
@@ -499,11 +786,8 @@ void InxScreenUIRenderer::Render(VkCommandBuffer cmdBuf, ScreenUIList list, uint
     VkDescriptorSet lastBoundDescSet = m_fontDescriptorSet;
 
     // ---- Issue draw commands ----
-    uint32_t globalVtxOffset = 0;
-    uint32_t globalIdxOffset = 0;
-
-    const float fw = static_cast<float>(width);
-    const float fh = static_cast<float>(height);
+    const float frameWidth = static_cast<float>(width);
+    const float frameHeight = static_cast<float>(height);
 
     for (int cmdI = 0; cmdI < dl->CmdBuffer.Size; cmdI++) {
         const ImDrawCmd &cmd = dl->CmdBuffer[cmdI];
@@ -523,22 +807,13 @@ void InxScreenUIRenderer::Render(VkCommandBuffer cmdBuf, ScreenUIList list, uint
 
         // Scissor rect from ImDrawCmd clip rect — clamped to render area
         // to prevent Vulkan validation errors and potential DEVICE_LOST.
-        float clipMinX = cmd.ClipRect.x < 0.0f ? 0.0f : cmd.ClipRect.x;
-        float clipMinY = cmd.ClipRect.y < 0.0f ? 0.0f : cmd.ClipRect.y;
-        float clipMaxX = cmd.ClipRect.z > fw ? fw : cmd.ClipRect.z;
-        float clipMaxY = cmd.ClipRect.w > fh ? fh : cmd.ClipRect.w;
-        if (clipMaxX <= clipMinX || clipMaxY <= clipMinY)
+        VkRect2D scissor{};
+        if (!MakeClampedScissor(cmd, frameWidth, frameHeight, scissor))
             continue; // Degenerate scissor — skip draw
 
-        VkRect2D scissor{};
-        scissor.offset.x = static_cast<int32_t>(clipMinX);
-        scissor.offset.y = static_cast<int32_t>(clipMinY);
-        scissor.extent.width = static_cast<uint32_t>(clipMaxX - clipMinX);
-        scissor.extent.height = static_cast<uint32_t>(clipMaxY - clipMinY);
         vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
 
-        vkCmdDrawIndexed(cmdBuf, cmd.ElemCount, 1, cmd.IdxOffset + globalIdxOffset,
-                         static_cast<int32_t>(cmd.VtxOffset + globalVtxOffset), 0);
+        vkCmdDrawIndexed(cmdBuf, cmd.ElemCount, 1, cmd.IdxOffset, static_cast<int32_t>(cmd.VtxOffset), 0);
     }
 }
 
@@ -551,37 +826,15 @@ bool InxScreenUIRenderer::CreateCompatibleRenderPass()
     // Create a render pass compatible with the scene MSAA backbuffer.
     // This is only used for pipeline creation — the actual render pass
     // is created by the RenderGraph and must be compatible.
-    VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = m_colorFormat;
-    colorAttachment.samples = m_msaaSamples;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference colorRef{};
-    colorRef.attachment = 0;
-    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorRef;
+    const VkAttachmentDescription colorAttachment =
+        MakeColorAttachmentDescription(m_colorFormat, m_msaaSamples, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const VkAttachmentReference colorRef = MakeColorAttachmentReference();
+    const VkSubpassDescription subpass = MakeSingleColorSubpass(colorRef);
 
     // Subpass dependency must match VkPipelineManager::CreateRenderPass so that
     // pipelines compiled against this render pass are compatible with the render
     // graph's actual render passes.
-    VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dependency.dstStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    const VkSubpassDependency dependency = vkrender::MakePipelineCompatibleSubpassDependency();
 
     VkRenderPassCreateInfo rpInfo{};
     rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -597,90 +850,28 @@ bool InxScreenUIRenderer::CreateCompatibleRenderPass()
 
 bool InxScreenUIRenderer::CreatePipeline()
 {
-    VkResult err;
-
     // ---- Shader modules ----
-    {
-        VkShaderModuleCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        ci.codeSize = sizeof(s_vertSpv);
-        ci.pCode = s_vertSpv;
-        err = vkCreateShaderModule(m_device, &ci, nullptr, &m_vertShader);
-        if (err != VK_SUCCESS)
-            return false;
-    }
-    {
-        VkShaderModuleCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        ci.codeSize = sizeof(s_fragSpv);
-        ci.pCode = s_fragSpv;
-        err = vkCreateShaderModule(m_device, &ci, nullptr, &m_fragShader);
-        if (err != VK_SUCCESS)
-            return false;
-    }
-
-    // ---- Sampler for font atlas ----
-    {
-        VkSamplerCreateInfo si{};
-        si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        si.magFilter = VK_FILTER_LINEAR;
-        si.minFilter = VK_FILTER_LINEAR;
-        si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        si.minLod = -1000.0f;
-        si.maxLod = 1000.0f;
-        si.maxAnisotropy = 1.0f;
-        err = vkCreateSampler(m_device, &si, nullptr, &m_fontSampler);
-        if (err != VK_SUCCESS)
-            return false;
-    }
+    if (!CreateShaderModule(m_device, s_vertSpv, sizeof(s_vertSpv), m_vertShader))
+        return false;
+    if (!CreateShaderModule(m_device, s_fragSpv, sizeof(s_fragSpv), m_fragShader))
+        return false;
 
     // ---- Descriptor set layout (identical to ImGui's) ----
-    {
-        VkDescriptorSetLayoutBinding binding{};
-        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        binding.descriptorCount = 1;
-        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        VkDescriptorSetLayoutCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        ci.bindingCount = 1;
-        ci.pBindings = &binding;
-        err = vkCreateDescriptorSetLayout(m_device, &ci, nullptr, &m_descriptorSetLayout);
-        if (err != VK_SUCCESS)
-            return false;
-    }
+    const VkDescriptorSetLayoutBinding binding = vkrender::MakeDescriptorSetLayoutBinding(
+        kFontTextureBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+    if (!vkrender::CreateDescriptorSetLayout(m_device, &binding, 1, m_descriptorSetLayout))
+        return false;
 
     // ---- Pipeline layout (identical to ImGui's: 4 floats push constant) ----
-    {
-        VkPushConstantRange pushConstRange{};
-        pushConstRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-        pushConstRange.offset = 0;
-        pushConstRange.size = sizeof(float) * 4;
-
-        VkPipelineLayoutCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        ci.setLayoutCount = 1;
-        ci.pSetLayouts = &m_descriptorSetLayout;
-        ci.pushConstantRangeCount = 1;
-        ci.pPushConstantRanges = &pushConstRange;
-        err = vkCreatePipelineLayout(m_device, &ci, nullptr, &m_pipelineLayout);
-        if (err != VK_SUCCESS)
-            return false;
-    }
+    const VkPushConstantRange pushConstRange = MakeVertexPushConstantRange(sizeof(float) * 4);
+    if (!CreatePipelineLayout(m_device, m_descriptorSetLayout, pushConstRange, m_pipelineLayout))
+        return false;
 
     // ---- Graphics pipeline (replicates ImGui's pipeline for scene render target) ----
-    VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = m_vertShader;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = m_fragShader;
-    stages[1].pName = "main";
+    const std::array<VkPipelineShaderStageCreateInfo, 2> stages = {
+        MakeShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT, m_vertShader),
+        MakeShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT, m_fragShader),
+    };
 
     VkVertexInputBindingDescription bindingDesc{};
     bindingDesc.stride = sizeof(GPUVertex);
@@ -697,63 +888,21 @@ bool InxScreenUIRenderer::CreatePipeline()
     attrDesc[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attrDesc[2].offset = offsetof(GPUVertex, color);
 
-    VkPipelineVertexInputStateCreateInfo vertInput{};
-    vertInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertInput.vertexBindingDescriptionCount = 1;
-    vertInput.pVertexBindingDescriptions = &bindingDesc;
-    vertInput.vertexAttributeDescriptionCount = 3;
-    vertInput.pVertexAttributeDescriptions = attrDesc;
-
-    VkPipelineInputAssemblyStateCreateInfo iaInfo{};
-    iaInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    iaInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo vpInfo{};
-    vpInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    vpInfo.viewportCount = 1;
-    vpInfo.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo rsInfo{};
-    rsInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rsInfo.polygonMode = VK_POLYGON_MODE_FILL;
-    rsInfo.cullMode = VK_CULL_MODE_NONE;
-    rsInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rsInfo.lineWidth = 1.0f;
-
-    VkPipelineMultisampleStateCreateInfo msInfo{};
-    msInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    msInfo.rasterizationSamples = m_msaaSamples;
-
-    VkPipelineColorBlendAttachmentState blendAttach{};
-    blendAttach.blendEnable = VK_TRUE;
-    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
-    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
-    blendAttach.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-    VkPipelineColorBlendStateCreateInfo cbInfo{};
-    cbInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    cbInfo.attachmentCount = 1;
-    cbInfo.pAttachments = &blendAttach;
-
-    VkPipelineDepthStencilStateCreateInfo dsInfo{};
-    dsInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    // No depth test for 2D UI
-
-    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynInfo{};
-    dynInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynInfo.dynamicStateCount = 2;
-    dynInfo.pDynamicStates = dynStates;
+    const VkPipelineVertexInputStateCreateInfo vertInput = MakeVertexInputState(bindingDesc, attrDesc, 3);
+    const VkPipelineInputAssemblyStateCreateInfo iaInfo = MakeTriangleListInputAssembly();
+    const VkPipelineViewportStateCreateInfo vpInfo = MakeDynamicViewportState();
+    const VkPipelineRasterizationStateCreateInfo rsInfo = MakeRasterizationState();
+    const VkPipelineMultisampleStateCreateInfo msInfo = MakeMultisampleState(m_msaaSamples);
+    const VkPipelineColorBlendAttachmentState blendAttach = MakeAlphaBlendAttachment();
+    const VkPipelineColorBlendStateCreateInfo cbInfo = MakeColorBlendState(blendAttach);
+    const VkPipelineDepthStencilStateCreateInfo dsInfo = MakeDisabledDepthStencilState();
+    const std::array<VkDynamicState, 2> dynStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    const VkPipelineDynamicStateCreateInfo dynInfo = MakeDynamicStateInfo(dynStates.data(), dynStates.size());
 
     VkGraphicsPipelineCreateInfo pipeInfo{};
     pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeInfo.stageCount = 2;
-    pipeInfo.pStages = stages;
+    pipeInfo.stageCount = static_cast<uint32_t>(stages.size());
+    pipeInfo.pStages = stages.data();
     pipeInfo.pVertexInputState = &vertInput;
     pipeInfo.pInputAssemblyState = &iaInfo;
     pipeInfo.pViewportState = &vpInfo;
@@ -766,72 +915,19 @@ bool InxScreenUIRenderer::CreatePipeline()
     pipeInfo.renderPass = m_renderPass;
     pipeInfo.subpass = 0;
 
-    err = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &m_pipeline);
-    return err == VK_SUCCESS;
+    return vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &m_pipeline) == VK_SUCCESS;
 }
 
 // ============================================================================
 // Buffer Management
 // ============================================================================
 
-void InxScreenUIRenderer::EnsureBuffers(VkDeviceSize vertexSize, VkDeviceSize indexSize)
+bool InxScreenUIRenderer::EnsureBuffers(VkDeviceSize vertexSize, VkDeviceSize indexSize)
 {
-    // Grow buffers if needed (with 1.5x overalloc to reduce reallocations)
-    if (m_vertexBuffer == VK_NULL_HANDLE || m_vertexBufferSize < vertexSize) {
-        if (m_vertexBuffer) {
-            VkBuffer oldBuffer = m_vertexBuffer;
-            VmaAllocation oldAlloc = m_vertexAlloc;
-            if (m_deletionQueue) {
-                VmaAllocator allocator = m_allocator;
-                m_deletionQueue->Push(
-                    [allocator, oldBuffer, oldAlloc]() { vmaDestroyBuffer(allocator, oldBuffer, oldAlloc); });
-            } else {
-                vmaDestroyBuffer(m_allocator, m_vertexBuffer, m_vertexAlloc);
-            }
-        }
-
-        VkDeviceSize allocSize = vertexSize + (vertexSize >> 1); // 1.5x
-
-        VkBufferCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        ci.size = allocSize;
-        ci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-
-        VmaAllocationCreateInfo ai{};
-        ai.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-        ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-        vmaCreateBuffer(m_allocator, &ci, &ai, &m_vertexBuffer, &m_vertexAlloc, nullptr);
-        m_vertexBufferSize = allocSize;
-    }
-
-    if (m_indexBuffer == VK_NULL_HANDLE || m_indexBufferSize < indexSize) {
-        if (m_indexBuffer) {
-            VkBuffer oldBuffer = m_indexBuffer;
-            VmaAllocation oldAlloc = m_indexAlloc;
-            if (m_deletionQueue) {
-                VmaAllocator allocator = m_allocator;
-                m_deletionQueue->Push(
-                    [allocator, oldBuffer, oldAlloc]() { vmaDestroyBuffer(allocator, oldBuffer, oldAlloc); });
-            } else {
-                vmaDestroyBuffer(m_allocator, m_indexBuffer, m_indexAlloc);
-            }
-        }
-
-        VkDeviceSize allocSize = indexSize + (indexSize >> 1);
-
-        VkBufferCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        ci.size = allocSize;
-        ci.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-
-        VmaAllocationCreateInfo ai{};
-        ai.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-        ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-        vmaCreateBuffer(m_allocator, &ci, &ai, &m_indexBuffer, &m_indexAlloc, nullptr);
-        m_indexBufferSize = allocSize;
-    }
+    return EnsureHostVisibleBuffer(m_allocator, m_deletionQueue, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, m_vertexBuffer,
+                                   m_vertexAlloc, m_vertexBufferSize, vertexSize) &&
+           EnsureHostVisibleBuffer(m_allocator, m_deletionQueue, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, m_indexBuffer,
+                                   m_indexAlloc, m_indexBufferSize, indexSize);
 }
 
 // ============================================================================

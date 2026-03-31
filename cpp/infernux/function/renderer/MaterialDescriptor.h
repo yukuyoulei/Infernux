@@ -6,6 +6,7 @@
 #include <functional>
 #include <glm/glm.hpp>
 #include <memory>
+#include <string_view>
 #include <vector>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -301,6 +302,16 @@ class MaterialDescriptorManager
      * @return The newly created pool, or VK_NULL_HANDLE on failure.
      */
     VkDescriptorPool CreateDescriptorPool(uint32_t maxMaterials);
+
+    [[nodiscard]] bool IsPlaceholderTexturePath(std::string_view texturePath) const;
+
+    [[nodiscard]] bool IsNormalBindingName(std::string_view bindingName) const;
+
+    [[nodiscard]] bool TryGetDefaultTextureBinding(std::string_view bindingName,
+                                                   MaterialDescriptorSet::TextureBinding &outBinding) const;
+
+    [[nodiscard]] bool TryResolveExplicitTextureBinding(const std::string &texturePath, const std::string &bindingName,
+                                                        MaterialDescriptorSet::TextureBinding &outBinding) const;
 
     /**
      * @brief Update descriptor set bindings

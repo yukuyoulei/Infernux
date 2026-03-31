@@ -9,10 +9,135 @@
 #include "vk/VkDeviceContext.h"
 #include "vk/VkPipelineManager.h"
 #include "vk/VkSwapchainManager.h"
+#include <algorithm>
+#include <core/config/EngineConfig.h>
 #include <core/error/InxError.h>
 
 namespace infernux
 {
+
+namespace
+{
+
+void DestroyPipelineEntry(VkDevice device, FullscreenPipelineEntry &entry)
+{
+    if (entry.pipeline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, entry.pipeline, nullptr);
+        entry.pipeline = VK_NULL_HANDLE;
+    }
+    if (entry.layoutOwned && entry.layout != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device, entry.layout, nullptr);
+        entry.layout = VK_NULL_HANDLE;
+        entry.layoutOwned = false;
+    }
+    if (entry.descSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, entry.descSetLayout, nullptr);
+        entry.descSetLayout = VK_NULL_HANDLE;
+    }
+    if (entry.emptyGapLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device, entry.emptyGapLayout, nullptr);
+        entry.emptyGapLayout = VK_NULL_HANDLE;
+    }
+}
+
+VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice device,
+                                                const std::vector<VkDescriptorSetLayoutBinding> &bindings)
+{
+    VkDescriptorSetLayoutCreateInfo layoutCI{};
+    layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutCI.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutCI.pBindings = bindings.empty() ? nullptr : bindings.data();
+
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &layout) != VK_SUCCESS) {
+        return VK_NULL_HANDLE;
+    }
+    return layout;
+}
+
+bool CreatePipelineLayout(VkDevice device, VkDescriptorSetLayout textureLayout, VkDescriptorSetLayout globalsLayout,
+                          FullscreenPipelineEntry &entry)
+{
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(FullscreenPushConstants);
+
+    std::vector<VkDescriptorSetLayout> setLayouts = {textureLayout};
+    if (globalsLayout != VK_NULL_HANDLE) {
+        entry.emptyGapLayout = CreateDescriptorSetLayout(device, {});
+        if (entry.emptyGapLayout == VK_NULL_HANDLE) {
+            return false;
+        }
+        setLayouts.push_back(entry.emptyGapLayout);
+        setLayouts.push_back(globalsLayout);
+    }
+
+    VkPipelineLayoutCreateInfo pipeLayoutCI{};
+    pipeLayoutCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeLayoutCI.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+    pipeLayoutCI.pSetLayouts = setLayouts.data();
+    pipeLayoutCI.pushConstantRangeCount = 1;
+    pipeLayoutCI.pPushConstantRanges = &pushRange;
+
+    if (vkCreatePipelineLayout(device, &pipeLayoutCI, nullptr, &entry.layout) != VK_SUCCESS) {
+        return false;
+    }
+    entry.layoutOwned = true;
+    return true;
+}
+
+void AppendImageWrite(std::vector<VkDescriptorImageInfo> &imageInfos, std::vector<VkWriteDescriptorSet> &writes,
+                      VkDescriptorSet descSet, uint32_t binding, VkImageView imageView, VkSampler sampler,
+                      VkImageLayout imageLayout)
+{
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.sampler = sampler;
+    imageInfo.imageView = imageView;
+    imageInfo.imageLayout = imageLayout;
+    imageInfos.push_back(imageInfo);
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descSet;
+    write.dstBinding = binding;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.descriptorCount = 1;
+    write.pImageInfo = &imageInfos.back();
+    writes.push_back(write);
+}
+
+VkSamplerCreateInfo MakeSamplerCreateInfo(VkFilter filter, VkSamplerMipmapMode mipmapMode)
+{
+    VkSamplerCreateInfo samplerCI{};
+    samplerCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerCI.magFilter = filter;
+    samplerCI.minFilter = filter;
+    samplerCI.mipmapMode = mipmapMode;
+    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.mipLodBias = 0.0f;
+    samplerCI.maxAnisotropy = 1.0f;
+    samplerCI.minLod = 0.0f;
+    samplerCI.maxLod = 0.0f;
+    return samplerCI;
+}
+
+bool CreateSampler(VkDevice device, VkFilter filter, VkSamplerMipmapMode mipmapMode, VkSampler &sampler,
+                   const char *label)
+{
+    VkSamplerCreateInfo samplerCI = MakeSamplerCreateInfo(filter, mipmapMode);
+    if (vkCreateSampler(device, &samplerCI, nullptr, &sampler) != VK_SUCCESS) {
+        INXLOG_ERROR("FullscreenRenderer: Failed to create ", label, " sampler");
+        sampler = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 // ============================================================================
 // Lifecycle
@@ -47,14 +172,7 @@ void FullscreenRenderer::Destroy()
     vkDeviceWaitIdle(m_device);
 
     for (auto &[key, entry] : m_pipelineCache) {
-        if (entry.pipeline != VK_NULL_HANDLE)
-            vkDestroyPipeline(m_device, entry.pipeline, nullptr);
-        if (entry.layoutOwned && entry.layout != VK_NULL_HANDLE)
-            vkDestroyPipelineLayout(m_device, entry.layout, nullptr);
-        if (entry.descSetLayout != VK_NULL_HANDLE)
-            vkDestroyDescriptorSetLayout(m_device, entry.descSetLayout, nullptr);
-        if (entry.emptyGapLayout != VK_NULL_HANDLE)
-            vkDestroyDescriptorSetLayout(m_device, entry.emptyGapLayout, nullptr);
+        DestroyPipelineEntry(m_device, entry);
     }
     m_pipelineCache.clear();
 
@@ -104,12 +222,11 @@ FullscreenPipelineEntry FullscreenRenderer::CreatePipeline(const FullscreenPipel
         return entry;
     }
 
-    auto &pipelineMgr = m_vkCore->GetPipelineManager();
-
     // ------------------------------------------------------------------
     // 1. Descriptor set layout: N combined image samplers (fragment)
     // ------------------------------------------------------------------
     std::vector<VkDescriptorSetLayoutBinding> bindings;
+    bindings.reserve(key.inputTextureCount);
     for (uint32_t i = 0; i < key.inputTextureCount; ++i) {
         VkDescriptorSetLayoutBinding b{};
         b.binding = i;
@@ -120,62 +237,23 @@ FullscreenPipelineEntry FullscreenRenderer::CreatePipeline(const FullscreenPipel
         bindings.push_back(b);
     }
 
-    VkDescriptorSetLayoutCreateInfo layoutCI{};
-    layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutCI.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutCI.pBindings = bindings.data();
-
-    VkDescriptorSetLayout descSetLayout = VK_NULL_HANDLE;
-    if (vkCreateDescriptorSetLayout(m_device, &layoutCI, nullptr, &descSetLayout) != VK_SUCCESS) {
+    entry.descSetLayout = CreateDescriptorSetLayout(m_device, bindings);
+    if (entry.descSetLayout == VK_NULL_HANDLE) {
         INXLOG_ERROR("FullscreenRenderer: Failed to create descriptor set layout for '", key.shaderName, "'");
         return entry;
     }
-    entry.descSetLayout = descSetLayout;
 
     // ------------------------------------------------------------------
     // 2. Pipeline layout: desc sets + push constants (128 bytes, fragment)
     //    set 0 = textures, set 1 = empty (per-view gap), set 2 = globals
     // ------------------------------------------------------------------
-    VkPushConstantRange pushRange{};
-    pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    pushRange.offset = 0;
-    pushRange.size = sizeof(FullscreenPushConstants);
-
-    // Build set layout array: [0]=textures, optional [1]=empty, [2]=globals
-    std::vector<VkDescriptorSetLayout> setLayouts = {descSetLayout};
-    VkDescriptorSetLayout emptyLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout globalsLayout = ShaderProgram::GetGlobalsDescSetLayout();
 
-    if (globalsLayout != VK_NULL_HANDLE) {
-        // Create empty layout for the per-view gap (set 1)
-        VkDescriptorSetLayoutCreateInfo emptyCI{};
-        emptyCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        emptyCI.bindingCount = 0;
-        emptyCI.pBindings = nullptr;
-        vkCreateDescriptorSetLayout(m_device, &emptyCI, nullptr, &emptyLayout);
-        setLayouts.push_back(emptyLayout);   // set 1
-        setLayouts.push_back(globalsLayout); // set 2
-    }
-
-    VkPipelineLayoutCreateInfo pipeLayoutCI{};
-    pipeLayoutCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeLayoutCI.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
-    pipeLayoutCI.pSetLayouts = setLayouts.data();
-    pipeLayoutCI.pushConstantRangeCount = 1;
-    pipeLayoutCI.pPushConstantRanges = &pushRange;
-
-    VkPipelineLayout pipeLayout = VK_NULL_HANDLE;
-    if (vkCreatePipelineLayout(m_device, &pipeLayoutCI, nullptr, &pipeLayout) != VK_SUCCESS) {
+    if (!CreatePipelineLayout(m_device, entry.descSetLayout, globalsLayout, entry)) {
         INXLOG_ERROR("FullscreenRenderer: Failed to create pipeline layout for '", key.shaderName, "'");
-        vkDestroyDescriptorSetLayout(m_device, descSetLayout, nullptr);
-        if (emptyLayout != VK_NULL_HANDLE)
-            vkDestroyDescriptorSetLayout(m_device, emptyLayout, nullptr);
-        entry.descSetLayout = VK_NULL_HANDLE;
+        DestroyPipelineEntry(m_device, entry);
         return entry;
     }
-    entry.layout = pipeLayout;
-    entry.emptyGapLayout = emptyLayout;
-    entry.layoutOwned = true;
 
     // ------------------------------------------------------------------
     // 3. Shader modules
@@ -192,14 +270,7 @@ FullscreenPipelineEntry FullscreenRenderer::CreatePipeline(const FullscreenPipel
         INXLOG_ERROR("FullscreenRenderer: Missing shader modules for '", key.shaderName,
                      "' (vert=", (vertModule != VK_NULL_HANDLE ? "OK" : "MISSING"),
                      ", frag=", (fragModule != VK_NULL_HANDLE ? "OK" : "MISSING"), ")");
-        vkDestroyPipelineLayout(m_device, pipeLayout, nullptr);
-        vkDestroyDescriptorSetLayout(m_device, descSetLayout, nullptr);
-        if (emptyLayout != VK_NULL_HANDLE)
-            vkDestroyDescriptorSetLayout(m_device, emptyLayout, nullptr);
-        entry.layout = VK_NULL_HANDLE;
-        entry.layoutOwned = false;
-        entry.descSetLayout = VK_NULL_HANDLE;
-        entry.emptyGapLayout = VK_NULL_HANDLE;
+        DestroyPipelineEntry(m_device, entry);
         return entry;
     }
 
@@ -280,18 +351,14 @@ FullscreenPipelineEntry FullscreenRenderer::CreatePipeline(const FullscreenPipel
     pipelineCI.pDepthStencilState = &depthStencil;
     pipelineCI.pColorBlendState = &colorBlending;
     pipelineCI.pDynamicState = &dynamicState;
-    pipelineCI.layout = pipeLayout;
+    pipelineCI.layout = entry.layout;
     pipelineCI.renderPass = key.renderPass;
     pipelineCI.subpass = 0;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
     if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline) != VK_SUCCESS) {
         INXLOG_ERROR("FullscreenRenderer: Failed to create pipeline for '", key.shaderName, "'");
-        vkDestroyPipelineLayout(m_device, pipeLayout, nullptr);
-        vkDestroyDescriptorSetLayout(m_device, descSetLayout, nullptr);
-        entry.layout = VK_NULL_HANDLE;
-        entry.layoutOwned = false;
-        entry.descSetLayout = VK_NULL_HANDLE;
+        DestroyPipelineEntry(m_device, entry);
         return entry;
     }
     entry.pipeline = pipeline;
@@ -336,42 +403,20 @@ VkDescriptorSet FullscreenRenderer::AllocateDescriptorSet(VkDescriptorSetLayout 
     }
 
     // Write image descriptors
-    std::array<VkDescriptorImageInfo, 8> smallImageInfos{};
-    std::array<VkWriteDescriptorSet, 8> smallWrites{};
-    std::vector<VkDescriptorImageInfo> largeImageInfos;
-    std::vector<VkWriteDescriptorSet> largeWrites;
-
-    VkDescriptorImageInfo *imageInfos = nullptr;
-    VkWriteDescriptorSet *writes = nullptr;
-    if (inputViewCount <= smallImageInfos.size()) {
-        imageInfos = smallImageInfos.data();
-        writes = smallWrites.data();
-    } else {
-        largeImageInfos.resize(inputViewCount);
-        largeWrites.resize(inputViewCount);
-        imageInfos = largeImageInfos.data();
-        writes = largeWrites.data();
-    }
+    std::vector<VkDescriptorImageInfo> imageInfos;
+    std::vector<VkWriteDescriptorSet> writes;
+    imageInfos.reserve(inputViewCount);
+    writes.reserve(inputViewCount);
 
     for (uint32_t i = 0; i < inputViewCount; ++i) {
         const bool isDepthInput = (depthInputs != nullptr) ? depthInputs[i] : false;
-        imageInfos[i].sampler = isDepthInput ? m_nearestSampler : colorSampler;
-        imageInfos[i].imageView = inputViews[i];
-        imageInfos[i].imageLayout =
-            isDepthInput ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        writes[i] = {};
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = descSet;
-        writes[i].dstBinding = i;
-        writes[i].dstArrayElement = 0;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[i].descriptorCount = 1;
-        writes[i].pImageInfo = &imageInfos[i];
+        AppendImageWrite(imageInfos, writes, descSet, i, inputViews[i], isDepthInput ? m_nearestSampler : colorSampler,
+                         isDepthInput ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                      : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
-    if (inputViewCount > 0) {
-        vkUpdateDescriptorSets(m_device, inputViewCount, writes, 0, nullptr);
+    if (!writes.empty()) {
+        vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
     return descSet;
@@ -437,17 +482,22 @@ VkDescriptorPool FullscreenRenderer::GetCurrentDescriptorPool() const
 
 void FullscreenRenderer::CreateDescriptorPools()
 {
-    m_descriptorPools.assign(vk::VkSwapchainManager::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    const EngineConfig &config = EngineConfig::Get();
+    const uint32_t framesInFlight = std::max(1u, m_vkCore ? m_vkCore->GetMaxFramesInFlight() : 1u);
+    const uint32_t samplerDescriptorsPerFrame = std::max(1u, config.fullscreenSamplerDescriptorsPerFrame);
+    const uint32_t maxSetsPerFrame = std::max(1u, config.fullscreenDescriptorSetsPerFrame);
+
+    m_descriptorPools.assign(framesInFlight, VK_NULL_HANDLE);
 
     for (size_t frameIndex = 0; frameIndex < m_descriptorPools.size(); ++frameIndex) {
         VkDescriptorPoolSize poolSize{};
         poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSize.descriptorCount = 256;
+        poolSize.descriptorCount = samplerDescriptorsPerFrame;
 
         VkDescriptorPoolCreateInfo poolCI{};
         poolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolCI.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        poolCI.maxSets = 128;
+        poolCI.maxSets = maxSetsPerFrame;
         poolCI.poolSizeCount = 1;
         poolCI.pPoolSizes = &poolSize;
 
@@ -466,42 +516,12 @@ void FullscreenRenderer::CreateDescriptorPools()
 
 void FullscreenRenderer::CreateLinearSampler()
 {
-    VkSamplerCreateInfo samplerCI{};
-    samplerCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerCI.magFilter = VK_FILTER_LINEAR;
-    samplerCI.minFilter = VK_FILTER_LINEAR;
-    samplerCI.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.mipLodBias = 0.0f;
-    samplerCI.maxAnisotropy = 1.0f;
-    samplerCI.minLod = 0.0f;
-    samplerCI.maxLod = 0.0f;
-
-    if (vkCreateSampler(m_device, &samplerCI, nullptr, &m_linearSampler) != VK_SUCCESS) {
-        INXLOG_ERROR("FullscreenRenderer: Failed to create linear sampler");
-    }
+    CreateSampler(m_device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR, m_linearSampler, "linear");
 }
 
 void FullscreenRenderer::CreateNearestSampler()
 {
-    VkSamplerCreateInfo samplerCI{};
-    samplerCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerCI.magFilter = VK_FILTER_NEAREST;
-    samplerCI.minFilter = VK_FILTER_NEAREST;
-    samplerCI.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.mipLodBias = 0.0f;
-    samplerCI.maxAnisotropy = 1.0f;
-    samplerCI.minLod = 0.0f;
-    samplerCI.maxLod = 0.0f;
-
-    if (vkCreateSampler(m_device, &samplerCI, nullptr, &m_nearestSampler) != VK_SUCCESS) {
-        INXLOG_ERROR("FullscreenRenderer: Failed to create nearest sampler");
-    }
+    CreateSampler(m_device, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, m_nearestSampler, "nearest");
 }
 
 } // namespace infernux

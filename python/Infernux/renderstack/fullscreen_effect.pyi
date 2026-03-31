@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, List, Set, TYPE_CHECKING
+from typing import Any, ClassVar, Dict, List, Mapping, Set, TYPE_CHECKING
 
 from Infernux.renderstack.render_pass import RenderPass
 
@@ -44,5 +44,18 @@ class FullScreenEffect(RenderPass):
         size_divisor: int = ...,
     ) -> Any:
         """Get or create a named texture handle in the render graph."""
+        ...
+    def apply_single_source_effect(
+        self,
+        graph: RenderGraph,
+        bus: ResourceBus,
+        *,
+        output_name: str,
+        pass_name: str,
+        shader_name: str,
+        format: Any,
+        params: Mapping[str, object] | None = ...,
+    ) -> bool:
+        """Apply a one-pass fullscreen effect that rewrites the scene color."""
         ...
     def __repr__(self) -> str: ...

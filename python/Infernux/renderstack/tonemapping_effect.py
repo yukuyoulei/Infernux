@@ -87,24 +87,20 @@ class ToneMappingEffect(FullScreenEffect):
 
     def setup_passes(self, graph: "RenderGraph", bus: "ResourceBus") -> None:
         """Inject the tonemapping pass into the render graph."""
-        color_in = bus.get("color")
-        if color_in is None:
-            return
-
         from Infernux.rendergraph.graph import Format
 
-        _tex = self.get_or_create_texture
-
-        color_out = _tex(graph, "_tonemap_out", format=Format.RGBA16_SFLOAT)
-
-        with graph.add_pass("ToneMap_Apply") as p:
-            p.set_texture("_SourceTex", color_in)
-            p.write_color(color_out)
-            mode = self._normalize_mode_value(self.mode)
-            self.mode = mode
-            p.set_param("mode", float(int(mode)))
-            p.set_param("exposure", self.exposure)
-            p.set_param("gamma", self.gamma)
-            p.fullscreen_quad("tonemapping")
-
-        bus.set("color", color_out)
+        mode = self._normalize_mode_value(self.mode)
+        self.mode = mode
+        self.apply_single_source_effect(
+            graph,
+            bus,
+            output_name="_tonemap_out",
+            pass_name="ToneMap_Apply",
+            shader_name="tonemapping",
+            format=Format.RGBA16_SFLOAT,
+            params={
+                "mode": float(int(mode)),
+                "exposure": self.exposure,
+                "gamma": self.gamma,
+            },
+        )

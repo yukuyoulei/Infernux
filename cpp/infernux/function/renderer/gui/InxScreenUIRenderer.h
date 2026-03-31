@@ -172,7 +172,7 @@ class InxScreenUIRenderer
     /**
      * @brief Ensure vertex/index buffers are large enough
      */
-    void EnsureBuffers(VkDeviceSize vertexSize, VkDeviceSize indexSize);
+    bool EnsureBuffers(VkDeviceSize vertexSize, VkDeviceSize indexSize);
 
     /**
      * @brief Get the ImDrawList for a given list
@@ -215,9 +215,7 @@ class InxScreenUIRenderer
     VkRenderPass m_renderPass = VK_NULL_HANDLE;
 
     // Font atlas descriptor (points to ImGui's font atlas)
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet m_fontDescriptorSet = VK_NULL_HANDLE;
-    VkSampler m_fontSampler = VK_NULL_HANDLE;
 
     // Vertex / Index buffers
     VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
@@ -234,9 +232,6 @@ class InxScreenUIRenderer
     std::vector<HDRColorRange> m_cameraHDRRanges;
     std::vector<HDRColorRange> m_overlayHDRRanges;
 
-    // Frame dimensions
-    uint32_t m_frameWidth = 0;
-    uint32_t m_frameHeight = 0;
     bool m_initialized = false;
     bool m_enabled = true;
     FrameDeletionQueue *m_deletionQueue = nullptr;

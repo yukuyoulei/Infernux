@@ -12,6 +12,7 @@
 #include "InxError.h"
 #include "InxVkCoreModular.h"
 #include "gui/GPUMaterialPreview.h"
+#include "vk/VkRenderUtils.h"
 
 #include <function/renderer/shader/ShaderProgram.h>
 #include <function/resources/AssetDatabase/AssetDatabase.h>
@@ -655,20 +656,11 @@ void InxVkCoreModular::CmdUpdateLightingCameraPos(VkCommandBuffer cmdBuf, const 
     constexpr VkDeviceSize cameraPosOffset = offsetof(ShaderLightingUBO, cameraPos);
     glm::vec4 cameraPosVec4(cameraPos, 1.0f);
 
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkrender::CmdBarrierUniformReadToTransferWrite(cmdBuf);
 
     vkCmdUpdateBuffer(cmdBuf, buffer, cameraPosOffset, sizeof(glm::vec4), &cameraPosVec4);
 
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    vkrender::CmdBarrierTransferWriteToUniformRead(cmdBuf);
 }
 
 void InxVkCoreModular::CmdUpdateLightingUBO(VkCommandBuffer cmdBuf)
@@ -681,23 +673,14 @@ void InxVkCoreModular::CmdUpdateLightingUBO(VkCommandBuffer cmdBuf)
     VkBuffer buffer = m_lightingUboBuffers[0]->GetBuffer();
 
     // Barrier: ensure previous shader reads from the lighting UBO are complete
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkrender::CmdBarrierUniformReadToTransferWrite(cmdBuf);
 
     // Update the lighting UBO inline in the command buffer
     // vkCmdUpdateBuffer has a 65536-byte limit; ShaderLightingUBO is well within that.
     vkCmdUpdateBuffer(cmdBuf, buffer, 0, sizeof(ShaderLightingUBO), &m_stagedLightingUBO);
 
     // Barrier: ensure write is visible before subsequent shader reads
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    vkrender::CmdBarrierTransferWriteToUniformRead(cmdBuf);
 
     m_lightingUBODirty = false;
 }
@@ -728,12 +711,7 @@ void InxVkCoreModular::CmdUpdateShadowDataForCamera(VkCommandBuffer cmdBuf, cons
     constexpr VkDeviceSize paramsOffset = offsetof(ShaderLightingUBO, shadowMapParams);
 
     // Barrier before writes
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkrender::CmdBarrierUniformReadToTransferWrite(cmdBuf);
 
     vkCmdUpdateBuffer(cmdBuf, buffer, vpOffset, sizeof(vpData), vpData);
     vkCmdUpdateBuffer(cmdBuf, buffer, splitOffset, sizeof(glm::vec4), &splitVec);
@@ -757,11 +735,7 @@ void InxVkCoreModular::CmdUpdateShadowDataForCamera(VkCommandBuffer cmdBuf, cons
     }
 
     // Barrier after writes
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    vkrender::CmdBarrierTransferWriteToUniformRead(cmdBuf);
 }
 
 void InxVkCoreModular::CmdRestoreEditorShadowData(VkCommandBuffer cmdBuf)
@@ -777,12 +751,7 @@ void InxVkCoreModular::CmdRestoreEditorShadowData(VkCommandBuffer cmdBuf)
     constexpr VkDeviceSize splitOffset = offsetof(ShaderLightingUBO, shadowCascadeSplits);
     constexpr VkDeviceSize paramsOffset = offsetof(ShaderLightingUBO, shadowMapParams);
 
-    VkMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    barrier.srcAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    vkrender::CmdBarrierUniformReadToTransferWrite(cmdBuf);
 
     vkCmdUpdateBuffer(cmdBuf, buffer, vpOffset, sizeof(m_stagedLightingUBO.lightVP), m_stagedLightingUBO.lightVP);
     vkCmdUpdateBuffer(cmdBuf, buffer, splitOffset, sizeof(glm::vec4), &m_stagedLightingUBO.shadowCascadeSplits);
@@ -806,11 +775,7 @@ void InxVkCoreModular::CmdRestoreEditorShadowData(VkCommandBuffer cmdBuf)
         vkCmdUpdateBuffer(cmdBuf, shadowBuffer, 0, sizeof(ShadowUBO), &ubo);
     }
 
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
-    vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier, 0,
-                         nullptr, 0, nullptr);
+    vkrender::CmdBarrierTransferWriteToUniformRead(cmdBuf);
 }
 
 // ============================================================================

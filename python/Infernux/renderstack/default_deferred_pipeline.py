@@ -44,6 +44,27 @@ from typing import TYPE_CHECKING
 
 from Infernux.renderstack.render_pipeline import RenderPipeline
 from Infernux.components.serialized_field import serialized_field
+from Infernux.renderstack._pipeline_common import (
+    COLOR_TEXTURE,
+    DEPTH_TEXTURE,
+    DEFERRED_GBUFFER_CLEAR_COLOR,
+    DEFERRED_LIGHTING_CLEAR_COLOR,
+    DEFERRED_LIGHTING_SHADER,
+    GBUFFER_ALBEDO_TEXTURE,
+    GBUFFER_EMISSION_TEXTURE,
+    GBUFFER_MATERIAL_TEXTURE,
+    GBUFFER_NORMAL_TEXTURE,
+    GBUFFER_RESOURCES,
+    SCENE_RESOURCES,
+    SHADOW_MAP_TEXTURE,
+    add_shadow_caster_pass,
+    add_skybox_pass,
+    add_standard_post_process_section,
+    add_transparent_pass,
+    create_deferred_gbuffer,
+    create_main_scene_targets,
+    opaque_queue_range,
+)
 
 if TYPE_CHECKING:
     from Infernux.rendergraph.graph import RenderGraph
@@ -107,99 +128,63 @@ class DefaultDeferredPipeline(RenderPipeline):
             → DeferredLighting → after_opaque → Skybox → after_sky
             → Transparent (forward) → after_transparent
         """
-        from Infernux.rendergraph.graph import Format
-
         # Deferred pipeline does not support MSAA on GBuffer
         graph.set_msaa_samples(1)
 
         shadow_res = self.shadow_resolution
 
         # ---- GBuffer textures (MRT) ----
-        graph.create_texture("color", camera_target=True)
-        graph.create_texture("depth", format=Format.D32_SFLOAT)
-        graph.create_texture(
-            "shadow_map",
-            format=Format.D32_SFLOAT,
-            size=(shadow_res, shadow_res),
-        )
-        graph.create_texture("gbuffer_albedo", format=Format.RGBA16_SFLOAT)
-        graph.create_texture("gbuffer_normal", format=Format.RGBA16_SFLOAT)
-        graph.create_texture("gbuffer_material", format=Format.RGBA8_UNORM)
-        graph.create_texture("gbuffer_emission", format=Format.RGBA16_SFLOAT)
+        create_main_scene_targets(graph, shadow_resolution=shadow_res)
+        create_deferred_gbuffer(graph)
 
         # ---- Pass 0: Shadow casters ----
-        with graph.add_pass("ShadowCasterPass") as p:
-            p.write_depth("shadow_map")
-            p.set_clear(depth=1.0)
-            p.draw_shadow_casters(
-                queue_range=(0, 2999),
-                light_index=0,
-                shadow_type="hard",
-            )
+        add_shadow_caster_pass(graph)
 
         # ---- Pass 1: GBuffer (opaque geometry → MRT) ----
         with graph.add_pass("GBufferPass") as p:
-            p.write_color("gbuffer_albedo", slot=0)
-            p.write_color("gbuffer_normal", slot=1)
-            p.write_color("gbuffer_material", slot=2)
-            p.write_color("gbuffer_emission", slot=3)
-            p.write_depth("depth")
+            p.write_color(GBUFFER_ALBEDO_TEXTURE, slot=0)
+            p.write_color(GBUFFER_NORMAL_TEXTURE, slot=1)
+            p.write_color(GBUFFER_MATERIAL_TEXTURE, slot=2)
+            p.write_color(GBUFFER_EMISSION_TEXTURE, slot=3)
+            p.write_depth(DEPTH_TEXTURE)
             p.set_clear(
-                color=(0.0, 0.0, 0.0, 0.0),
+                color=DEFERRED_GBUFFER_CLEAR_COLOR,
                 depth=1.0,
             )
-            p.draw_renderers(queue_range=(0, 2500), sort_mode="front_to_back")
+            p.draw_renderers(queue_range=opaque_queue_range(), sort_mode="front_to_back")
 
-        graph.injection_point(
-            "after_gbuffer",
-            resources={"gbuffer_albedo", "gbuffer_normal", "gbuffer_material", "gbuffer_emission", "depth"},
-        )
+        graph.injection_point("after_gbuffer", resources=GBUFFER_RESOURCES)
 
         # ---- Pass 2: Deferred lighting (fullscreen) ----
         with graph.add_pass("DeferredLightingPass") as p:
-            p.set_texture("gAlbedo", "gbuffer_albedo")
-            p.set_texture("gNormal", "gbuffer_normal")
-            p.set_texture("gMaterial", "gbuffer_material")
-            p.set_texture("gEmission", "gbuffer_emission")
-            p.set_texture("sceneDepth", "depth")
-            p.set_texture("shadowMap", "shadow_map")
-            p.write_color("color")
-            p.set_clear(color=(0.0, 0.0, 0.0, 1.0))
-            p.fullscreen_quad("deferred_lighting")
+            p.set_textures(
+                {
+                    "gAlbedo": GBUFFER_ALBEDO_TEXTURE,
+                    "gNormal": GBUFFER_NORMAL_TEXTURE,
+                    "gMaterial": GBUFFER_MATERIAL_TEXTURE,
+                    "gEmission": GBUFFER_EMISSION_TEXTURE,
+                    "sceneDepth": DEPTH_TEXTURE,
+                    "shadowMap": SHADOW_MAP_TEXTURE,
+                }
+            )
+            p.write_color(COLOR_TEXTURE)
+            p.set_clear(color=DEFERRED_LIGHTING_CLEAR_COLOR)
+            p.fullscreen_quad(DEFERRED_LIGHTING_SHADER)
 
-        graph.injection_point(
-            "after_opaque",
-            resources={"color", "depth"},
-        )
+        graph.injection_point("after_opaque", resources=SCENE_RESOURCES)
 
         # ---- Pass 3: Skybox ----
-        with graph.add_pass("SkyboxPass") as p:
-            p.read("depth")
-            p.write_color("color")
-            p.draw_skybox()
-
-        graph.injection_point("after_sky", resources={"color", "depth"})
+        add_skybox_pass(graph)
+        graph.injection_point("after_sky", resources=SCENE_RESOURCES)
 
         # ---- Pass 4: Transparent objects (forward rendering) ----
-        with graph.add_pass("TransparentPass") as p:
-            p.read("depth")
-            p.write_color("color")
-            p.set_texture("shadowMap", "shadow_map")
-            p.draw_renderers(
-                queue_range=(2501, 5000),
-                sort_mode="back_to_front",
-            )
-
-        graph.injection_point(
-            "after_transparent",
-            resources={"color", "depth"},
-        )
+        add_transparent_pass(graph)
+        graph.injection_point("after_transparent", resources=SCENE_RESOURCES)
 
         # ---- ScreenUI + post-process injection points ----
-        if self.enable_screen_ui:
-            graph.screen_ui_section()
-        else:
-            graph.injection_point("before_post_process", resources={"color"})
-            graph.injection_point("after_post_process", resources={"color"})
+        add_standard_post_process_section(
+            graph,
+            enable_screen_ui=self.enable_screen_ui,
+        )
 
-        graph.set_output("color")
+        graph.set_output(COLOR_TEXTURE)

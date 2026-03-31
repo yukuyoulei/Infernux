@@ -11,6 +11,7 @@
 #include "MaterialPipelineManager.h"
 #include "SceneRenderTarget.h"
 #include "shader/ShaderProgram.h"
+#include "vk/VkRenderUtils.h"
 #include <function/resources/InxMaterial/InxMaterial.h>
 
 #include <core/error/InxError.h>
@@ -24,6 +25,125 @@
 
 namespace infernux
 {
+
+namespace
+{
+
+constexpr uint32_t kOutlineSceneUBOBinding = 0;
+constexpr uint32_t kOutlineVertexMaterialUBOBinding = 14;
+
+VkPipelineShaderStageCreateInfo MakeShaderStageInfo(VkShaderStageFlagBits stage, VkShaderModule module)
+{
+    VkPipelineShaderStageCreateInfo shaderStage{};
+    shaderStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStage.stage = stage;
+    shaderStage.module = module;
+    shaderStage.pName = "main";
+    return shaderStage;
+}
+
+struct MeshVertexInputState
+{
+    VkVertexInputBindingDescription bindingDesc = Vertex::getBindingDescription();
+    decltype(Vertex::getAttributeDescriptions()) attrDescs = Vertex::getAttributeDescriptions();
+    VkPipelineVertexInputStateCreateInfo createInfo{};
+
+    MeshVertexInputState()
+    {
+        createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        createInfo.vertexBindingDescriptionCount = 1;
+        createInfo.pVertexBindingDescriptions = &bindingDesc;
+        createInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrDescs.size());
+        createInfo.pVertexAttributeDescriptions = attrDescs.data();
+    }
+};
+
+struct DynamicViewportState
+{
+    std::array<VkDynamicState, 2> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    VkPipelineViewportStateCreateInfo viewportState{};
+
+    DynamicViewportState()
+    {
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+    }
+};
+
+VkPipelineInputAssemblyStateCreateInfo MakeTriangleListInputAssembly()
+{
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    return inputAssembly;
+}
+
+VkPipelineRasterizationStateCreateInfo MakeRasterizationState(VkCullModeFlags cullMode)
+{
+    VkPipelineRasterizationStateCreateInfo raster{};
+    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.lineWidth = 1.0f;
+    raster.cullMode = cullMode;
+    raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    return raster;
+}
+
+VkPipelineDepthStencilStateCreateInfo MakeDepthStencilState(VkBool32 depthTestEnable, VkBool32 depthWriteEnable)
+{
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = depthTestEnable;
+    depthStencil.depthWriteEnable = depthWriteEnable;
+    return depthStencil;
+}
+
+VkPipelineMultisampleStateCreateInfo MakeMultisampleState(VkSampleCountFlagBits sampleCount)
+{
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = sampleCount;
+    return multisampling;
+}
+
+VkPipelineColorBlendAttachmentState MakeOpaqueColorBlendAttachment()
+{
+    VkPipelineColorBlendAttachmentState colorBlendAttach{};
+    colorBlendAttach.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttach.blendEnable = VK_FALSE;
+    return colorBlendAttach;
+}
+
+VkPipelineColorBlendAttachmentState MakeAlphaBlendAttachment()
+{
+    VkPipelineColorBlendAttachmentState colorBlendAttach = MakeOpaqueColorBlendAttachment();
+    colorBlendAttach.blendEnable = VK_TRUE;
+    colorBlendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttach.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+    return colorBlendAttach;
+}
+
+VkPipelineColorBlendStateCreateInfo MakeColorBlendState(const VkPipelineColorBlendAttachmentState &attachment)
+{
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments = &attachment;
+    return colorBlend;
+}
+
+} // namespace
 
 // ============================================================================
 // Destructor
@@ -188,16 +308,7 @@ void OutlineRenderer::OnResize(uint32_t width, uint32_t height)
     imageInfo.sampler = m_sceneRenderTarget->GetOutlineMaskSampler();
     imageInfo.imageView = m_sceneRenderTarget->GetOutlineMaskImageView();
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = m_outlineCompositeDescSet;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.pImageInfo = &imageInfo;
-
-    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    vkrender::UpdateDescriptorSetWithImage(device, m_outlineCompositeDescSet, 0, imageInfo);
 }
 
 // ============================================================================
@@ -398,82 +509,36 @@ void OutlineRenderer::CreateOutlineDescriptorResources()
 
     // --- Mask descriptor set layout: binding 0 = UBO (scene VP matrices) ---
     {
-        VkDescriptorSetLayoutBinding uboBinding{};
-        uboBinding.binding = 0;
-        uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        uboBinding.descriptorCount = 1;
-        uboBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        const VkDescriptorSetLayoutBinding uboBinding = vkrender::MakeDescriptorSetLayoutBinding(
+            kOutlineSceneUBOBinding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT);
 
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &uboBinding;
-
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_outlineMaskDescSetLayout);
-
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = m_outlineDescPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &m_outlineMaskDescSetLayout;
-
-        vkAllocateDescriptorSets(device, &allocInfo, &m_outlineMaskDescSet);
+        vkrender::CreateDescriptorSetLayout(device, &uboBinding, 1, m_outlineMaskDescSetLayout);
+        vkrender::AllocateDescriptorSet(device, m_outlineDescPool, m_outlineMaskDescSetLayout, m_outlineMaskDescSet);
 
         // Write scene UBO to binding 0
         VkDescriptorBufferInfo bufferInfo{};
         bufferInfo.buffer = m_core->GetUniformBuffer(0);
         bufferInfo.offset = 0;
         bufferInfo.range = sizeof(UniformBufferObject);
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = m_outlineMaskDescSet;
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.pBufferInfo = &bufferInfo;
-
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        vkrender::UpdateDescriptorSetWithBuffer(device, m_outlineMaskDescSet, kOutlineSceneUBOBinding,
+                                                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, bufferInfo);
     }
 
     // --- Composite descriptor set layout: binding 0 = sampler (mask texture) ---
     {
-        VkDescriptorSetLayoutBinding samplerBinding{};
-        samplerBinding.binding = 0;
-        samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerBinding.descriptorCount = 1;
-        samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        const VkDescriptorSetLayoutBinding samplerBinding = vkrender::MakeDescriptorSetLayoutBinding(
+            0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
 
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &samplerBinding;
-
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_outlineCompositeDescSetLayout);
-
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = m_outlineDescPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &m_outlineCompositeDescSetLayout;
-
-        vkAllocateDescriptorSets(device, &allocInfo, &m_outlineCompositeDescSet);
+        vkrender::CreateDescriptorSetLayout(device, &samplerBinding, 1, m_outlineCompositeDescSetLayout);
+        vkrender::AllocateDescriptorSet(device, m_outlineDescPool, m_outlineCompositeDescSetLayout,
+                                        m_outlineCompositeDescSet);
 
         // Write mask texture to binding 0
         VkDescriptorImageInfo imageInfo{};
         imageInfo.sampler = m_sceneRenderTarget->GetOutlineMaskSampler();
         imageInfo.imageView = m_sceneRenderTarget->GetOutlineMaskImageView();
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = m_outlineCompositeDescSet;
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.pImageInfo = &imageInfo;
-
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        vkrender::UpdateDescriptorSetWithImage(device, m_outlineCompositeDescSet, 0, imageInfo);
     }
 }
 
@@ -500,88 +565,31 @@ void OutlineRenderer::CreateOutlinePipelines()
 
         vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_outlineMaskPipelineLayout);
 
-        // Shader stages
-        VkPipelineShaderStageCreateInfo vertStage{};
-        vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertStage.module = m_core->GetShaderModule("outline_mask", "vertex");
-        vertStage.pName = "main";
-
-        VkPipelineShaderStageCreateInfo fragStage{};
-        fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        fragStage.module = m_core->GetShaderModule("outline_mask", "fragment");
-        fragStage.pName = "main";
-
-        std::array<VkPipelineShaderStageCreateInfo, 2> stages = {vertStage, fragStage};
-
-        // Vertex input: same as scene mesh (Vertex struct)
-        auto bindingDesc = Vertex::getBindingDescription();
-        auto attrDescs = Vertex::getAttributeDescriptions();
-
-        VkPipelineVertexInputStateCreateInfo vertexInput{};
-        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexBindingDescriptions = &bindingDesc;
-        vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrDescs.size());
-        vertexInput.pVertexAttributeDescriptions = attrDescs.data();
-
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-        // Viewport + scissor (dynamic)
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        std::array<VkDynamicState, 2> dynStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynStates.size());
-        dynamicState.pDynamicStates = dynStates.data();
-
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount = 1;
-        viewportState.scissorCount = 1;
-
-        // Rasterization: no culling — supports all mesh winding orders
-        VkPipelineRasterizationStateCreateInfo raster{};
-        raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        raster.polygonMode = VK_POLYGON_MODE_FILL;
-        raster.lineWidth = 1.0f;
-        raster.cullMode = VK_CULL_MODE_NONE;
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
-
-        // No depth test — scene depth not shared, outline is always visible (like Blender)
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthStencil.depthTestEnable = VK_FALSE;
-        depthStencil.depthWriteEnable = VK_FALSE;
-
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-        VkPipelineColorBlendAttachmentState colorBlendAttach{};
-        colorBlendAttach.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttach.blendEnable = VK_FALSE;
-
-        VkPipelineColorBlendStateCreateInfo colorBlend{};
-        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colorBlend.attachmentCount = 1;
-        colorBlend.pAttachments = &colorBlendAttach;
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages = {
+            MakeShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT, m_core->GetShaderModule("outline_mask", "vertex")),
+            MakeShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT, m_core->GetShaderModule("outline_mask", "fragment")),
+        };
+        MeshVertexInputState vertexInput;
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly = MakeTriangleListInputAssembly();
+        DynamicViewportState viewportState;
+        VkPipelineRasterizationStateCreateInfo raster = MakeRasterizationState(VK_CULL_MODE_NONE);
+        VkPipelineDepthStencilStateCreateInfo depthStencil = MakeDepthStencilState(VK_FALSE, VK_FALSE);
+        VkPipelineMultisampleStateCreateInfo multisampling = MakeMultisampleState(VK_SAMPLE_COUNT_1_BIT);
+        VkPipelineColorBlendAttachmentState colorBlendAttach = MakeOpaqueColorBlendAttachment();
+        VkPipelineColorBlendStateCreateInfo colorBlend = MakeColorBlendState(colorBlendAttach);
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipelineInfo.stageCount = static_cast<uint32_t>(stages.size());
         pipelineInfo.pStages = stages.data();
-        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pVertexInputState = &vertexInput.createInfo;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
-        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pViewportState = &viewportState.viewportState;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlend;
-        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.pDynamicState = &viewportState.dynamicState;
         pipelineInfo.layout = m_outlineMaskPipelineLayout;
         pipelineInfo.renderPass = m_outlineMaskRenderPass;
         pipelineInfo.subpass = 0;
@@ -611,75 +619,22 @@ void OutlineRenderer::CreateOutlinePipelines()
 
         vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_outlineCompositePipelineLayout);
 
-        // Shader stages
-        VkPipelineShaderStageCreateInfo vertStage{};
-        vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertStage.module = m_core->GetShaderModule("outline_composite", "vertex");
-        vertStage.pName = "main";
-
-        VkPipelineShaderStageCreateInfo fragStage{};
-        fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        fragStage.module = m_core->GetShaderModule("outline_composite", "fragment");
-        fragStage.pName = "main";
-
-        std::array<VkPipelineShaderStageCreateInfo, 2> stages = {vertStage, fragStage};
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages = {
+            MakeShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT, m_core->GetShaderModule("outline_composite", "vertex")),
+            MakeShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT, m_core->GetShaderModule("outline_composite", "fragment")),
+        };
 
         // No vertex input (fullscreen triangle is procedural)
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-        // Viewport + scissor (dynamic)
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        std::array<VkDynamicState, 2> dynStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-        dynamicState.dynamicStateCount = static_cast<uint32_t>(dynStates.size());
-        dynamicState.pDynamicStates = dynStates.data();
-
-        VkPipelineViewportStateCreateInfo viewportState{};
-        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        viewportState.viewportCount = 1;
-        viewportState.scissorCount = 1;
-
-        // Rasterization: no culling for fullscreen triangle
-        VkPipelineRasterizationStateCreateInfo raster{};
-        raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        raster.polygonMode = VK_POLYGON_MODE_FILL;
-        raster.lineWidth = 1.0f;
-        raster.cullMode = VK_CULL_MODE_NONE;
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
-
-        // No depth test
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        depthStencil.depthTestEnable = VK_FALSE;
-        depthStencil.depthWriteEnable = VK_FALSE;
-
-        VkPipelineMultisampleStateCreateInfo multisampling{};
-        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-        // Alpha blending for outline compositing
-        VkPipelineColorBlendAttachmentState colorBlendAttach{};
-        colorBlendAttach.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorBlendAttach.blendEnable = VK_TRUE;
-        colorBlendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        colorBlendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        colorBlendAttach.colorBlendOp = VK_BLEND_OP_ADD;
-        colorBlendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        colorBlendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        colorBlendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
-
-        VkPipelineColorBlendStateCreateInfo colorBlend{};
-        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        colorBlend.attachmentCount = 1;
-        colorBlend.pAttachments = &colorBlendAttach;
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly = MakeTriangleListInputAssembly();
+        DynamicViewportState viewportState;
+        VkPipelineRasterizationStateCreateInfo raster = MakeRasterizationState(VK_CULL_MODE_NONE);
+        VkPipelineDepthStencilStateCreateInfo depthStencil = MakeDepthStencilState(VK_FALSE, VK_FALSE);
+        VkPipelineMultisampleStateCreateInfo multisampling = MakeMultisampleState(VK_SAMPLE_COUNT_1_BIT);
+        VkPipelineColorBlendAttachmentState colorBlendAttach = MakeAlphaBlendAttachment();
+        VkPipelineColorBlendStateCreateInfo colorBlend = MakeColorBlendState(colorBlendAttach);
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -687,12 +642,12 @@ void OutlineRenderer::CreateOutlinePipelines()
         pipelineInfo.pStages = stages.data();
         pipelineInfo.pVertexInputState = &vertexInput;
         pipelineInfo.pInputAssemblyState = &inputAssembly;
-        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pViewportState = &viewportState.viewportState;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlend;
-        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.pDynamicState = &viewportState.dynamicState;
         pipelineInfo.layout = m_outlineCompositePipelineLayout;
         pipelineInfo.renderPass = m_outlineCompositeRenderPass;
         pipelineInfo.subpass = 0;
@@ -714,35 +669,22 @@ void OutlineRenderer::CreateOutlineMaterialResources()
     VmaAllocator allocator = m_core->GetDeviceContext().GetVmaAllocator();
     uint32_t framesInFlight = m_core->GetMaxFramesInFlight();
 
-    // --- Set 0 layout: binding 0 (scene UBO, vertex) + binding 14 (vert material UBO, vertex) ---
+    // --- Set 0 layout: binding 0 (scene UBO, vertex) + vertex material UBO ---
     {
-        VkDescriptorSetLayoutBinding bindings[2]{};
-        bindings[0].binding = 0;
-        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        bindings[0].descriptorCount = 1;
-        bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
+            vkrender::MakeDescriptorSetLayoutBinding(kOutlineSceneUBOBinding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                                                     VK_SHADER_STAGE_VERTEX_BIT),
+            vkrender::MakeDescriptorSetLayoutBinding(kOutlineVertexMaterialUBOBinding,
+                                                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT),
+        };
 
-        bindings[1].binding = 14;
-        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        bindings[1].descriptorCount = 1;
-        bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 2;
-        layoutInfo.pBindings = bindings;
-
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_outlineMtlSet0Layout);
+        vkrender::CreateDescriptorSetLayout(device, bindings.data(), static_cast<uint32_t>(bindings.size()),
+                                            m_outlineMtlSet0Layout);
     }
 
     // --- Empty set 1 layout placeholder ---
     {
-        VkDescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 0;
-        layoutInfo.pBindings = nullptr;
-
-        vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_emptyDescSetLayout);
+        vkrender::CreateDescriptorSetLayout(device, nullptr, 0, m_emptyDescSetLayout);
     }
 
     // --- Pipeline layout: [set0, emptySet1, globalsSet2] + push constants ---
@@ -822,35 +764,21 @@ void OutlineRenderer::CreateOutlineMaterialResources()
         vkAllocateDescriptorSets(device, &allocInfo, m_outlineGlobalsDescSets.data());
 
         for (uint32_t i = 0; i < framesInFlight; ++i) {
-            VkWriteDescriptorSet writes[2]{};
-
             // Binding 0: globals UBO (same as engine frame i)
             VkDescriptorBufferInfo uboBufInfo{};
             uboBufInfo.buffer = m_core->GetGlobalsBuffer(i);
             uboBufInfo.offset = 0;
             uboBufInfo.range = VK_WHOLE_SIZE;
-
-            writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[0].dstSet = m_outlineGlobalsDescSets[i];
-            writes[0].dstBinding = 0;
-            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            writes[0].descriptorCount = 1;
-            writes[0].pBufferInfo = &uboBufInfo;
+            vkrender::UpdateDescriptorSetWithBuffer(device, m_outlineGlobalsDescSets[i], 0,
+                                                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uboBufInfo);
 
             // Binding 1: outline instance buffer (1 mat4)
             VkDescriptorBufferInfo ssboBufInfo{};
             ssboBufInfo.buffer = m_outlineInstanceBufs[i].buffer;
             ssboBufInfo.offset = 0;
             ssboBufInfo.range = sizeof(glm::mat4);
-
-            writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[1].dstSet = m_outlineGlobalsDescSets[i];
-            writes[1].dstBinding = 1;
-            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            writes[1].descriptorCount = 1;
-            writes[1].pBufferInfo = &ssboBufInfo;
-
-            vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+            vkrender::UpdateDescriptorSetWithBuffer(device, m_outlineGlobalsDescSets[i], 1,
+                                                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ssboBufInfo);
         }
     }
 
@@ -878,85 +806,31 @@ VkPipeline OutlineRenderer::GetOrCreateMtlOutlinePipeline(InxMaterial *material)
 
     VkDevice device = m_core->GetDevice();
 
-    // Shader stages
-    VkPipelineShaderStageCreateInfo vertStage{};
-    vertStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vertStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vertStage.module = vertModule;
-    vertStage.pName = "main";
-
-    VkPipelineShaderStageCreateInfo fragStage{};
-    fragStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    fragStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragStage.module = fragModule;
-    fragStage.pName = "main";
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages = {vertStage, fragStage};
-
-    // Vertex input (same as scene mesh)
-    auto bindingDesc = Vertex::getBindingDescription();
-    auto attrDescs = Vertex::getAttributeDescriptions();
-
-    VkPipelineVertexInputStateCreateInfo vertexInput{};
-    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInput.vertexBindingDescriptionCount = 1;
-    vertexInput.pVertexBindingDescriptions = &bindingDesc;
-    vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrDescs.size());
-    vertexInput.pVertexAttributeDescriptions = attrDescs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    std::array<VkDynamicState, 2> dynStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynStates.size());
-    dynamicState.pDynamicStates = dynStates.data();
-
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    VkPipelineRasterizationStateCreateInfo raster{};
-    raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    raster.polygonMode = VK_POLYGON_MODE_FILL;
-    raster.lineWidth = 1.0f;
-    raster.cullMode = VK_CULL_MODE_NONE;
-    raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_FALSE;
-    depthStencil.depthWriteEnable = VK_FALSE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineColorBlendAttachmentState colorBlendAttach{};
-    colorBlendAttach.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttach.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendStateCreateInfo colorBlend{};
-    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlend.attachmentCount = 1;
-    colorBlend.pAttachments = &colorBlendAttach;
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages = {
+        MakeShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT, vertModule),
+        MakeShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT, fragModule),
+    };
+    MeshVertexInputState vertexInput;
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = MakeTriangleListInputAssembly();
+    DynamicViewportState viewportState;
+    VkPipelineRasterizationStateCreateInfo raster = MakeRasterizationState(VK_CULL_MODE_NONE);
+    VkPipelineDepthStencilStateCreateInfo depthStencil = MakeDepthStencilState(VK_FALSE, VK_FALSE);
+    VkPipelineMultisampleStateCreateInfo multisampling = MakeMultisampleState(VK_SAMPLE_COUNT_1_BIT);
+    VkPipelineColorBlendAttachmentState colorBlendAttach = MakeOpaqueColorBlendAttachment();
+    VkPipelineColorBlendStateCreateInfo colorBlend = MakeColorBlendState(colorBlendAttach);
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = static_cast<uint32_t>(stages.size());
     pipelineInfo.pStages = stages.data();
-    pipelineInfo.pVertexInputState = &vertexInput;
+    pipelineInfo.pVertexInputState = &vertexInput.createInfo;
     pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pViewportState = &viewportState.viewportState;
     pipelineInfo.pRasterizationState = &raster;
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.pColorBlendState = &colorBlend;
-    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.pDynamicState = &viewportState.dynamicState;
     pipelineInfo.layout = m_outlineMtlPipelineLayout;
     pipelineInfo.renderPass = m_outlineMaskRenderPass;
     pipelineInfo.subpass = 0;
@@ -991,47 +865,27 @@ VkDescriptorSet OutlineRenderer::GetOrCreateMtlOutlineDescSet(InxMaterial *mater
 
     VkDevice device = m_core->GetDevice();
 
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = m_outlineMtlDescPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &m_outlineMtlSet0Layout;
-
     VkDescriptorSet descSet = VK_NULL_HANDLE;
-    if (vkAllocateDescriptorSets(device, &allocInfo, &descSet) != VK_SUCCESS) {
+    if (!vkrender::AllocateDescriptorSet(device, m_outlineMtlDescPool, m_outlineMtlSet0Layout, descSet)) {
         INXLOG_WARN("OutlineRenderer: Failed to allocate per-material outline descriptor set");
         return VK_NULL_HANDLE;
     }
-
-    VkWriteDescriptorSet writes[2]{};
 
     // Binding 0: scene UBO (same as the fixed outline mask)
     VkDescriptorBufferInfo sceneBufInfo{};
     sceneBufInfo.buffer = m_core->GetUniformBuffer(0);
     sceneBufInfo.offset = 0;
     sceneBufInfo.range = sizeof(UniformBufferObject);
+    vkrender::UpdateDescriptorSetWithBuffer(device, descSet, kOutlineSceneUBOBinding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                                            sceneBufInfo);
 
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = descSet;
-    writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[0].descriptorCount = 1;
-    writes[0].pBufferInfo = &sceneBufInfo;
-
-    // Binding 14: vertex material UBO
+    // Vertex material UBO
     VkDescriptorBufferInfo vertMatBufInfo{};
     vertMatBufInfo.buffer = renderData->materialDescSet->vertexMaterialUBO->GetBuffer();
     vertMatBufInfo.offset = 0;
     vertMatBufInfo.range = renderData->materialDescSet->vertexMaterialUBO->GetSize();
-
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = descSet;
-    writes[1].dstBinding = 14;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[1].descriptorCount = 1;
-    writes[1].pBufferInfo = &vertMatBufInfo;
-
-    vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    vkrender::UpdateDescriptorSetWithBuffer(device, descSet, kOutlineVertexMaterialUBOBinding,
+                                            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, vertMatBufInfo);
 
     m_perMtlOutlineDescSets[key] = descSet;
     return descSet;

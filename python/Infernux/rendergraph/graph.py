@@ -23,7 +23,7 @@ Design: Builder pattern with fluent API for clean, LLM-friendly usage.
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Optional, Tuple, List, Dict
+from typing import Mapping, Optional, Tuple, List, Dict
 
 # Try to import the native types. If unavailable, we define stubs so the
 # Python-side graph can still be built and tested without a running engine.
@@ -218,6 +218,23 @@ class RenderPassBuilder:
         self._input_bindings[sampler_name] = handle.name
         if handle.name not in self._reads:
             self._reads.append(handle.name)
+        return self
+
+    def set_textures(
+        self,
+        bindings: Mapping[str, object],
+    ) -> "RenderPassBuilder":
+        """Bind multiple graph textures to shader samplers in one call.
+
+        This removes repeated ``set_texture()`` boilerplate in multi-input
+        passes such as deferred lighting and post-processing.
+
+        Args:
+            bindings: Mapping of ``sampler_name -> texture`` where *texture*
+                is either a string alias or ``TextureHandle``.
+        """
+        for sampler_name, texture in bindings.items():
+            self.set_texture(sampler_name, texture)
         return self
 
     # ---- Clear settings ----

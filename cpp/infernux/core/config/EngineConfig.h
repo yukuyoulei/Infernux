@@ -33,6 +33,12 @@ struct EngineConfig
     /// Number of combined-image-sampler descriptors allocated per material slot.
     uint32_t samplerDescriptorsPerMaterial = 8;
 
+    /// Number of fullscreen descriptor sets allocated per frame-in-flight.
+    uint32_t fullscreenDescriptorSetsPerFrame = 128;
+
+    /// Number of fullscreen sampled-image descriptors allocated per frame-in-flight.
+    uint32_t fullscreenSamplerDescriptorsPerFrame = 256;
+
     // ========================================================================
     // Rendering — Textures
     // ========================================================================
@@ -50,6 +56,18 @@ struct EngineConfig
     /// User-space render queue range (materials created by user scripts).
     int32_t userQueueMin = 0;
     int32_t userQueueMax = 9999;
+
+    /// Opaque queue range used by the built-in forward/deferred pipelines.
+    int32_t opaqueQueueMin = 0;
+    int32_t opaqueQueueMax = 2500;
+
+    /// Transparent queue range used by the built-in forward/deferred pipelines.
+    int32_t transparentQueueMin = 2501;
+    int32_t transparentQueueMax = 5000;
+
+    /// Shadow-caster queue range used by the built-in forward/deferred pipelines.
+    int32_t shadowCasterQueueMin = 0;
+    int32_t shadowCasterQueueMax = 2999;
 
     /// Component gizmos queue range (Python-driven, depth-tested).
     int32_t componentGizmoQueueMin = 10000;

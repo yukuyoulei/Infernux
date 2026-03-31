@@ -33,8 +33,9 @@ Parameter serialization:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, List, Set, TYPE_CHECKING
+from typing import Any, ClassVar, Dict, List, Mapping, Set, TYPE_CHECKING
 
+from Infernux.renderstack._pipeline_common import COLOR_TEXTURE
 from Infernux.renderstack.render_pass import RenderPass
 from Infernux.renderstack._serialized_field_mixin import SerializedFieldCollectorMixin
 
@@ -143,6 +144,39 @@ class FullScreenEffect(SerializedFieldCollectorMixin, RenderPass):
             create_kwargs["format"] = format
 
         return graph.create_texture(name, **create_kwargs)
+
+    def apply_single_source_effect(
+        self,
+        graph: "RenderGraph",
+        bus: "ResourceBus",
+        *,
+        output_name: str,
+        pass_name: str,
+        shader_name: str,
+        format: "Format",
+        params: Mapping[str, object] | None = None,
+    ) -> bool:
+        """Build a one-pass fullscreen effect that reads and rewrites scene color.
+
+        This is the common pattern used by most post-processing passes:
+        read the current scene color from the bus, render into a temporary
+        target, and publish the new color handle back into the bus.
+        """
+        color_in = bus.get(COLOR_TEXTURE)
+        if color_in is None:
+            return False
+
+        color_out = self.get_or_create_texture(graph, output_name, format=format)
+
+        with graph.add_pass(pass_name) as p:
+            p.set_texture("_SourceTex", color_in)
+            p.write_color(color_out)
+            for param_name, param_value in (params or {}).items():
+                p.set_param(param_name, param_value)
+            p.fullscreen_quad(shader_name)
+
+        bus.set(COLOR_TEXTURE, color_out)
+        return True
 
     # ==================================================================
     # Core interface — subclasses implement these

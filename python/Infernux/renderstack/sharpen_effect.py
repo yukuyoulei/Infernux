@@ -52,18 +52,12 @@ class SharpenEffect(FullScreenEffect):
     def setup_passes(self, graph: "RenderGraph", bus: "ResourceBus") -> None:
         from Infernux.rendergraph.graph import Format
 
-        color_in = bus.get("color")
-        if color_in is None:
-            return
-
-        _tex = self.get_or_create_texture
-
-        color_out = _tex(graph, "_sharpen_out", format=Format.RGBA16_SFLOAT)
-
-        with graph.add_pass("Sharpen_CAS") as p:
-            p.set_texture("_SourceTex", color_in)
-            p.write_color(color_out)
-            p.set_param("intensity", self.intensity)
-            p.fullscreen_quad("sharpen_cas")
-
-        bus.set("color", color_out)
+        self.apply_single_source_effect(
+            graph,
+            bus,
+            output_name="_sharpen_out",
+            pass_name="Sharpen_CAS",
+            shader_name="sharpen_cas",
+            format=Format.RGBA16_SFLOAT,
+            params={"intensity": self.intensity},
+        )

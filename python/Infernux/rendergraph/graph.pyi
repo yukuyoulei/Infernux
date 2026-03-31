@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Optional, Tuple, List, Dict
+from typing import Mapping, Optional, Tuple, List, Dict
 
 from Infernux.lib import (
     RenderGraphDescription,
@@ -80,6 +80,9 @@ class RenderPassBuilder:
         ...
     def set_texture(self, sampler_name: str, texture: str | TextureHandle) -> RenderPassBuilder:
         """Bind a texture to a sampler input for this pass."""
+        ...
+    def set_textures(self, bindings: Mapping[str, object]) -> RenderPassBuilder:
+        """Bind multiple textures to sampler inputs for this pass."""
         ...
     def set_clear(
         self,

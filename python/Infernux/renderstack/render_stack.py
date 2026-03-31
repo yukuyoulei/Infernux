@@ -44,6 +44,10 @@ from typing import Dict, List, Optional, Set, TYPE_CHECKING
 
 from Infernux.components.component import InxComponent
 from Infernux.components.decorators import disallow_multiple, add_component_menu
+from Infernux.renderstack._pipeline_common import (
+    COLOR_TEXTURE,
+    ensure_standard_post_process_points,
+)
 from Infernux.renderstack.injection_point import InjectionPoint
 from Infernux.renderstack.resource_bus import ResourceBus
 
@@ -499,11 +503,7 @@ class RenderStack(InxComponent):
         self.pipeline.define_topology(g)
         # Keep the inspector probe consistent with build(): post-process
         # injection points are guaranteed to exist even when Screen UI is off.
-        _auto_res = {"color"}
-        if not g.has_injection_point("before_post_process"):
-            g.injection_point("before_post_process", resources=_auto_res)
-        if not g.has_injection_point("after_post_process"):
-            g.injection_point("after_post_process", resources=_auto_res)
+        ensure_standard_post_process_points(g)
         self._topology_probe_cache = g
         return g
 
@@ -559,11 +559,7 @@ class RenderStack(InxComponent):
         # but that happens after the callback is detached — effects targeting
         # these points would never be injected.  Calling injection_point()
         # here triggers the callback so mounted effects are properly inserted.
-        _auto_res = {"color"}
-        if not graph.has_injection_point("before_post_process"):
-            graph.injection_point("before_post_process", resources=_auto_res)
-        if not graph.has_injection_point("after_post_process"):
-            graph.injection_point("after_post_process", resources=_auto_res)
+        ensure_standard_post_process_points(graph)
 
         # Validate: no injection point before first pass
         graph.validate_no_ip_before_first_pass()
@@ -571,8 +567,8 @@ class RenderStack(InxComponent):
         # If post-processing effects redirected "color" to a different
         # texture, blit the result back to the original camera target
         # (backbuffer) so it gets presented to the screen.
-        original_color = graph.get_texture("color")
-        final_color = bus.get("color")
+        original_color = graph.get_texture(COLOR_TEXTURE)
+        final_color = bus.get(COLOR_TEXTURE)
         if (final_color is not None
                 and original_color is not None
                 and final_color is not original_color):
@@ -593,7 +589,7 @@ class RenderStack(InxComponent):
         elif final_color is not None:
             graph.set_output(final_color)
         else:
-            graph.set_output("color")
+            graph.set_output(COLOR_TEXTURE)
 
         return graph.build()
 

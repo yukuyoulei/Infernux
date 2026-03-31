@@ -42,21 +42,17 @@ class ColorAdjustmentsEffect(FullScreenEffect):
     def setup_passes(self, graph: "RenderGraph", bus: "ResourceBus") -> None:
         from Infernux.rendergraph.graph import Format
 
-        color_in = bus.get("color")
-        if color_in is None:
-            return
-
-        _tex = self.get_or_create_texture
-
-        color_out = _tex(graph, "_coloradj_out", format=Format.RGBA16_SFLOAT)
-
-        with graph.add_pass("ColorAdj_Apply") as p:
-            p.set_texture("_SourceTex", color_in)
-            p.write_color(color_out)
-            p.set_param("postExposure", self.post_exposure)
-            p.set_param("contrast", self.contrast)
-            p.set_param("saturation", self.saturation)
-            p.set_param("hueShift", self.hue_shift)
-            p.fullscreen_quad("color_adjustments")
-
-        bus.set("color", color_out)
+        self.apply_single_source_effect(
+            graph,
+            bus,
+            output_name="_coloradj_out",
+            pass_name="ColorAdj_Apply",
+            shader_name="color_adjustments",
+            format=Format.RGBA16_SFLOAT,
+            params={
+                "postExposure": self.post_exposure,
+                "contrast": self.contrast,
+                "saturation": self.saturation,
+                "hueShift": self.hue_shift,
+            },
+        )

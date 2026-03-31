@@ -29,6 +29,16 @@ from typing import TYPE_CHECKING
 
 from Infernux.renderstack.render_pipeline import RenderPipeline
 from Infernux.components.serialized_field import serialized_field
+from Infernux.renderstack._pipeline_common import (
+    COLOR_TEXTURE,
+    SCENE_RESOURCES,
+    add_forward_opaque_pass,
+    add_shadow_caster_pass,
+    add_skybox_pass,
+    add_standard_post_process_section,
+    add_transparent_pass,
+    create_main_scene_targets,
+)
 
 if TYPE_CHECKING:
     from Infernux.rendergraph.graph import RenderGraph
@@ -97,8 +107,6 @@ class DefaultForwardPipeline(RenderPipeline):
             ShadowCasterPass → OpaquePass → after_opaque → SkyboxPass → after_sky
             → TransparentPass → after_transparent
         """
-        from Infernux.rendergraph.graph import Format
-
         # ---- MSAA configuration (from exposed parameter) ----
         graph.set_msaa_samples(int(self.msaa_samples))
 
@@ -106,61 +114,29 @@ class DefaultForwardPipeline(RenderPipeline):
         shadow_res = self.shadow_resolution
 
         # ---- Create resources ----
-        graph.create_texture("color", camera_target=True)
-        graph.create_texture("depth", format=Format.D32_SFLOAT)
-        graph.create_texture(
-            "shadow_map",
-            format=Format.D32_SFLOAT,
-            size=(shadow_res, shadow_res),
-        )
+        create_main_scene_targets(graph, shadow_resolution=shadow_res)
 
         # Pass 0: Shadow caster pass (depth-only, custom resolution)
-        with graph.add_pass("ShadowCasterPass") as p:
-            p.write_depth("shadow_map")
-            p.set_clear(depth=1.0)
-            p.draw_shadow_casters(
-                queue_range=(0, 2999),
-                light_index=0,
-                shadow_type="hard",
-            )
+        add_shadow_caster_pass(graph)
 
         # Pass 1: Opaque objects (front-to-back for early-z)
-        with graph.add_pass("OpaquePass") as p:
-            p.write_color("color")
-            p.write_depth("depth")
-            p.set_clear(color=(0.1, 0.1, 0.1, 1.0), depth=1.0)
-            p.set_texture("shadowMap", "shadow_map")
-            p.draw_renderers(queue_range=(0, 2500), sort_mode="front_to_back")
-
-        graph.injection_point("after_opaque", resources={"color", "depth"})
+        add_forward_opaque_pass(graph)
+        graph.injection_point("after_opaque", resources=SCENE_RESOURCES)
 
         # Pass 2: Skybox (renders after opaque, depth-tested)
-        with graph.add_pass("SkyboxPass") as p:
-            p.read("depth")
-            p.write_color("color")
-            p.draw_skybox()
-
-        graph.injection_point("after_sky", resources={"color", "depth"})
+        add_skybox_pass(graph)
+        graph.injection_point("after_sky", resources=SCENE_RESOURCES)
 
         # Pass 3: Transparent objects (back-to-front for blending)
-        with graph.add_pass("TransparentPass") as p:
-            p.read("depth")
-            p.write_color("color")
-            p.set_texture("shadowMap", "shadow_map")
-            p.draw_renderers(
-                queue_range=(2501, 5000),
-                sort_mode="back_to_front",
-            )
-
-        graph.injection_point("after_transparent", resources={"color", "depth"})
+        add_transparent_pass(graph)
+        graph.injection_point("after_transparent", resources=SCENE_RESOURCES)
 
         # ---- ScreenUI + post-process injection points ----
         # Always emit post-process injection points so effects work
         # regardless of the Screen UI toggle.
-        if self.enable_screen_ui:
-            graph.screen_ui_section()
-        else:
-            graph.injection_point("before_post_process", resources={"color"})
-            graph.injection_point("after_post_process", resources={"color"})
+        add_standard_post_process_section(
+            graph,
+            enable_screen_ui=self.enable_screen_ui,
+        )
 
-        graph.set_output("color")
+        graph.set_output(COLOR_TEXTURE)

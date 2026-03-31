@@ -1,9 +1,67 @@
 #include "MaterialDescriptor.h"
+#include <algorithm>
+#include <core/config/EngineConfig.h>
 #include <core/log/InxLog.h>
 #include <cstring>
 
 namespace infernux
 {
+
+namespace
+{
+
+constexpr std::string_view kSceneUBOName = "UniformBufferObject";
+constexpr std::string_view kLightingUBOName = "LightingUBO";
+
+bool IsSceneUBOBinding(const MergedDescriptorBinding &binding)
+{
+    return binding.set == 0 && (binding.name == kSceneUBOName || binding.binding == 0);
+}
+
+bool IsLightingUBOBinding(const MergedDescriptorBinding &binding)
+{
+    return binding.set == 0 && (binding.name == kLightingUBOName || binding.binding == 1);
+}
+
+void AppendBufferWrite(std::vector<VkWriteDescriptorSet> &writes, std::vector<VkDescriptorBufferInfo> &bufferInfos,
+                       VkDescriptorSet dstSet, uint32_t binding, VkDescriptorType descriptorType,
+                       const VkDescriptorBufferInfo &bufferInfo, uint32_t descriptorCount = 1)
+{
+    bufferInfos.push_back(bufferInfo);
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = dstSet;
+    write.dstBinding = binding;
+    write.dstArrayElement = 0;
+    write.descriptorCount = descriptorCount;
+    write.descriptorType = descriptorType;
+    write.pBufferInfo = &bufferInfos.back();
+    writes.push_back(write);
+}
+
+void AppendImageWrite(std::vector<VkWriteDescriptorSet> &writes, std::vector<VkDescriptorImageInfo> &imageInfos,
+                      VkDescriptorSet dstSet, uint32_t binding, VkImageView imageView, VkSampler sampler,
+                      VkImageLayout imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+{
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = imageLayout;
+    imageInfo.imageView = imageView;
+    imageInfo.sampler = sampler;
+    imageInfos.push_back(imageInfo);
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = dstSet;
+    write.dstBinding = binding;
+    write.dstArrayElement = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageInfos.back();
+    writes.push_back(write);
+}
+
+} // namespace
 
 // ============================================================================
 // MaterialUBO Implementation
@@ -223,13 +281,14 @@ void MaterialDescriptorManager::Shutdown()
 
 VkDescriptorPool MaterialDescriptorManager::CreateDescriptorPool(uint32_t maxMaterials)
 {
-    // Pool sizes - assume each material may need:
-    // - 1 uniform buffer (scene UBO, binding 0)
-    // - 1 uniform buffer (lighting UBO, binding 1)
-    // - 1 uniform buffer (material UBO, binding 3)
-    // - up to 8 combined image samplers (albedo, normal, shadow, etc.)
-    std::vector<VkDescriptorPoolSize> poolSizes = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxMaterials * 5},
-                                                   {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxMaterials * 8}};
+    const EngineConfig &config = EngineConfig::Get();
+    const uint32_t uboDescriptorsPerMaterial = std::max(1u, config.uboDescriptorsPerMaterial);
+    const uint32_t samplerDescriptorsPerMaterial = std::max(1u, config.samplerDescriptorsPerMaterial);
+
+    std::vector<VkDescriptorPoolSize> poolSizes = {
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, maxMaterials * uboDescriptorsPerMaterial},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxMaterials * samplerDescriptorsPerMaterial},
+    };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -246,6 +305,52 @@ VkDescriptorPool MaterialDescriptorManager::CreateDescriptorPool(uint32_t maxMat
 
     m_descriptorPools.push_back(pool);
     return pool;
+}
+
+bool MaterialDescriptorManager::IsPlaceholderTexturePath(std::string_view texturePath) const
+{
+    return texturePath == "white" || texturePath == "black" || texturePath == "normal";
+}
+
+bool MaterialDescriptorManager::IsNormalBindingName(std::string_view bindingName) const
+{
+    return bindingName.find("normal") != std::string_view::npos || bindingName.find("Normal") != std::string_view::npos;
+}
+
+bool MaterialDescriptorManager::TryGetDefaultTextureBinding(std::string_view bindingName,
+                                                            MaterialDescriptorSet::TextureBinding &outBinding) const
+{
+    if (IsNormalBindingName(bindingName) && m_defaultNormalImageView != VK_NULL_HANDLE &&
+        m_defaultNormalSampler != VK_NULL_HANDLE) {
+        outBinding = {m_defaultNormalImageView, m_defaultNormalSampler};
+        return true;
+    }
+
+    if (m_defaultImageView != VK_NULL_HANDLE && m_defaultSampler != VK_NULL_HANDLE) {
+        outBinding = {m_defaultImageView, m_defaultSampler};
+        return true;
+    }
+
+    outBinding = {};
+    return false;
+}
+
+bool MaterialDescriptorManager::TryResolveExplicitTextureBinding(
+    const std::string &texturePath, const std::string &bindingName,
+    MaterialDescriptorSet::TextureBinding &outBinding) const
+{
+    if (!m_textureResolver || texturePath.empty()) {
+        return false;
+    }
+
+    auto [imageView, sampler] = m_textureResolver(texturePath, bindingName);
+    if (imageView == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
+        outBinding = {};
+        return false;
+    }
+
+    outBinding = {imageView, sampler};
+    return true;
 }
 
 MaterialDescriptorSet *MaterialDescriptorManager::GetOrCreateDescriptorSet(const InxMaterial &material,
@@ -382,11 +487,7 @@ MaterialDescriptorSet *MaterialDescriptorManager::GetOrCreateDescriptorSet(const
             if (!texturePath || texturePath->empty()) {
                 continue;
             }
-
-            // Skip built-in placeholder names — defaults are already applied by UpdateDescriptorBindings
-            if (*texturePath == "white" || *texturePath == "black" || *texturePath == "normal") {
-                continue;
-            }
+            const bool isPlaceholderTexture = IsPlaceholderTexturePath(*texturePath);
 
             // Find the matching sampler binding by name (set 0 only)
             for (const auto &binding : bindings) {
@@ -399,46 +500,28 @@ MaterialDescriptorSet *MaterialDescriptorManager::GetOrCreateDescriptorSet(const
 
                 // Match property name to sampler name from shader reflection
                 if (binding.name == propName) {
-                    auto [imageView, sampler] = m_textureResolver(*texturePath, binding.name);
-                    VkImageView finalView = imageView;
-                    VkSampler finalSampler = sampler;
+                    MaterialDescriptorSet::TextureBinding resolvedBinding{};
+                    const bool resolvedExplicit =
+                        !isPlaceholderTexture &&
+                        TryResolveExplicitTextureBinding(*texturePath, binding.name, resolvedBinding);
 
-                    if (finalView != VK_NULL_HANDLE && finalSampler != VK_NULL_HANDLE) {
-                        matDescSet->textureBindings[binding.binding] = {finalView, finalSampler};
+                    if (!resolvedExplicit && !TryGetDefaultTextureBinding(binding.name, resolvedBinding)) {
+                        matDescSet->textureBindings.erase(binding.binding);
+                        break;
+                    }
+
+                    matDescSet->textureBindings[binding.binding] = resolvedBinding;
+
+                    if (resolvedExplicit) {
                         INXLOG_DEBUG("Bound texture '", *texturePath, "' to binding ", binding.binding,
                                      " for material '", materialName, "'");
-                    } else {
+                    } else if (!isPlaceholderTexture) {
                         INXLOG_WARN("Failed to resolve texture '", *texturePath, "' for material '", materialName,
                                     "' property '", propName, "' — binding default texture");
-                        bool isNormal = (binding.name.find("normal") != std::string::npos ||
-                                         binding.name.find("Normal") != std::string::npos);
-                        if (isNormal && m_defaultNormalImageView != VK_NULL_HANDLE) {
-                            finalView = m_defaultNormalImageView;
-                            finalSampler = m_defaultNormalSampler;
-                        } else if (m_defaultImageView != VK_NULL_HANDLE) {
-                            finalView = m_defaultImageView;
-                            finalSampler = m_defaultSampler;
-                        }
-                        matDescSet->textureBindings.erase(binding.binding);
                     }
 
-                    if (finalView != VK_NULL_HANDLE && finalSampler != VK_NULL_HANDLE) {
-                        texImageInfos.push_back({});
-                        auto &imgInfo = texImageInfos.back();
-                        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        imgInfo.imageView = finalView;
-                        imgInfo.sampler = finalSampler;
-
-                        texWrites.push_back({});
-                        auto &w = texWrites.back();
-                        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                        w.dstSet = matDescSet->descriptorSet;
-                        w.dstBinding = binding.binding;
-                        w.dstArrayElement = 0;
-                        w.descriptorCount = 1;
-                        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                        w.pImageInfo = &texImageInfos.back();
-                    }
+                    AppendImageWrite(texWrites, texImageInfos, matDescSet->descriptorSet, binding.binding,
+                                     resolvedBinding.imageView, resolvedBinding.sampler);
                     break;
                 }
             }
@@ -483,14 +566,6 @@ void MaterialDescriptorManager::UpdateDescriptorBindings(MaterialDescriptorSet &
             continue;
         }
 
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = matDescSet.descriptorSet;
-        write.dstBinding = binding.binding;
-        write.dstArrayElement = 0;
-        write.descriptorCount = binding.descriptorCount;
-        write.descriptorType = binding.type;
-
         if (binding.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
             VkDescriptorBufferInfo bufferInfo{};
 
@@ -516,13 +591,13 @@ void MaterialDescriptorManager::UpdateDescriptorBindings(MaterialDescriptorSet &
                 bufferInfo.buffer = matDescSet.materialUBO->GetBuffer();
                 bufferInfo.offset = 0;
                 bufferInfo.range = matDescSet.materialUBO->GetSize();
-            } else if (binding.binding == 0) {
+            } else if (IsSceneUBOBinding(binding)) {
                 bufferInfo.buffer = sceneUBO;
                 bufferInfo.offset = 0;
                 bufferInfo.range = sceneUBOSize;
-            } else if (binding.binding == 1 && lightingUBO != VK_NULL_HANDLE) {
-                // Lighting UBO at binding 1 (lit shaders only — unlit shaders
-                // use binding 1 for MaterialProperties, handled above)
+            } else if (IsLightingUBOBinding(binding) && lightingUBO != VK_NULL_HANDLE) {
+                // Lighting UBO is identified by reflected name first and only
+                // falls back to binding=1 for legacy/generated shader layouts.
                 INXLOG_DEBUG("    -> Binding LightingUBO, size=", lightingUBOSize);
                 bufferInfo.buffer = lightingUBO;
                 bufferInfo.offset = 0;
@@ -536,35 +611,20 @@ void MaterialDescriptorManager::UpdateDescriptorBindings(MaterialDescriptorSet &
                 continue; // Skip if no valid buffer
             }
 
-            bufferInfos.push_back(bufferInfo);
-            write.pBufferInfo = &bufferInfos.back();
-            writes.push_back(write);
+            AppendBufferWrite(writes, bufferInfos, matDescSet.descriptorSet, binding.binding, binding.type, bufferInfo,
+                              binding.descriptorCount);
         } else if (binding.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-            VkDescriptorImageInfo imageInfo{};
-            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
             // Check if we have a texture bound for this slot
             auto texIt = matDescSet.textureBindings.find(binding.binding);
-
+            MaterialDescriptorSet::TextureBinding textureBinding{};
             if (texIt != matDescSet.textureBindings.end()) {
-                imageInfo.imageView = texIt->second.imageView;
-                imageInfo.sampler = texIt->second.sampler;
-            } else if (m_defaultNormalImageView != VK_NULL_HANDLE && m_defaultNormalSampler != VK_NULL_HANDLE &&
-                       binding.name.find("normal") != std::string::npos) {
-                // Use flat normal default for normal-map bindings
-                imageInfo.imageView = m_defaultNormalImageView;
-                imageInfo.sampler = m_defaultNormalSampler;
-            } else if (m_defaultImageView != VK_NULL_HANDLE && m_defaultSampler != VK_NULL_HANDLE) {
-                // Use default white texture
-                imageInfo.imageView = m_defaultImageView;
-                imageInfo.sampler = m_defaultSampler;
-            } else {
+                textureBinding = texIt->second;
+            } else if (!TryGetDefaultTextureBinding(binding.name, textureBinding)) {
                 continue; // Skip if no valid image
             }
 
-            imageInfos.push_back(imageInfo);
-            write.pImageInfo = &imageInfos.back();
-            writes.push_back(write);
+            AppendImageWrite(writes, imageInfos, matDescSet.descriptorSet, binding.binding, textureBinding.imageView,
+                             textureBinding.sampler);
         }
     }
 
@@ -607,43 +667,6 @@ void MaterialDescriptorManager::ResolveTextureProperties(const std::string &mate
     writes.reserve(properties.size());
     imageInfos.reserve(properties.size());
 
-    auto queueDefaultForBinding = [&](const MergedDescriptorBinding &binding) {
-        VkImageView imageView = VK_NULL_HANDLE;
-        VkSampler sampler = VK_NULL_HANDLE;
-
-        bool isNormal =
-            (binding.name.find("normal") != std::string::npos || binding.name.find("Normal") != std::string::npos);
-        if (isNormal && m_defaultNormalImageView != VK_NULL_HANDLE && m_defaultNormalSampler != VK_NULL_HANDLE) {
-            imageView = m_defaultNormalImageView;
-            sampler = m_defaultNormalSampler;
-        } else if (m_defaultImageView != VK_NULL_HANDLE && m_defaultSampler != VK_NULL_HANDLE) {
-            imageView = m_defaultImageView;
-            sampler = m_defaultSampler;
-        }
-
-        if (imageView == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
-            return;
-        }
-
-        matDescSet.textureBindings.erase(binding.binding);
-
-        imageInfos.push_back({});
-        auto &imgInfo = imageInfos.back();
-        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imgInfo.imageView = imageView;
-        imgInfo.sampler = sampler;
-
-        writes.push_back({});
-        auto &write = writes.back();
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = matDescSet.descriptorSet;
-        write.dstBinding = binding.binding;
-        write.dstArrayElement = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.pImageInfo = &imageInfos.back();
-    };
-
     for (const auto &[propName, prop] : properties) {
         if (prop.type != MaterialPropertyType::Texture2D) {
             continue;
@@ -656,60 +679,36 @@ void MaterialDescriptorManager::ResolveTextureProperties(const std::string &mate
                 continue;
             }
             if (binding.name == propName) {
+                MaterialDescriptorSet::TextureBinding resolvedBinding{};
+
                 if (!texturePath || texturePath->empty()) {
-                    queueDefaultForBinding(binding);
+                    if (TryGetDefaultTextureBinding(binding.name, resolvedBinding)) {
+                        matDescSet.textureBindings[binding.binding] = resolvedBinding;
+                        AppendImageWrite(writes, imageInfos, matDescSet.descriptorSet, binding.binding,
+                                         resolvedBinding.imageView, resolvedBinding.sampler);
+                    } else {
+                        matDescSet.textureBindings.erase(binding.binding);
+                    }
                     INXLOG_DEBUG("Cleared texture binding ", binding.binding, " for material '", materialName,
                                  "' property '", propName, "' -> rebound default texture");
                     break;
                 }
 
-                // Determine if this is a placeholder that should use the default texture
-                bool isPlaceholder = (*texturePath == "white" || *texturePath == "black" || *texturePath == "normal");
+                const bool isPlaceholder = IsPlaceholderTexturePath(*texturePath);
+                const bool resolvedExplicit =
+                    !isPlaceholder && TryResolveExplicitTextureBinding(*texturePath, binding.name, resolvedBinding);
+                const bool hasBinding = resolvedExplicit || TryGetDefaultTextureBinding(binding.name, resolvedBinding);
 
-                VkImageView imageView = VK_NULL_HANDLE;
-                VkSampler sampler = VK_NULL_HANDLE;
-
-                if (isPlaceholder) {
-                    bool isNormal = (binding.name.find("normal") != std::string::npos ||
-                                     binding.name.find("Normal") != std::string::npos);
-                    if (isNormal && m_defaultNormalImageView != VK_NULL_HANDLE) {
-                        imageView = m_defaultNormalImageView;
-                        sampler = m_defaultNormalSampler;
-                    } else if (m_defaultImageView != VK_NULL_HANDLE) {
-                        imageView = m_defaultImageView;
-                        sampler = m_defaultSampler;
-                    }
-                } else {
-                    auto resolved = m_textureResolver(*texturePath, binding.name);
-                    imageView = resolved.first;
-                    sampler = resolved.second;
-                }
-
-                if (imageView != VK_NULL_HANDLE && sampler != VK_NULL_HANDLE) {
-                    matDescSet.textureBindings[binding.binding] = {imageView, sampler};
-
-                    imageInfos.push_back({});
-                    auto &imgInfo = imageInfos.back();
-                    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    imgInfo.imageView = imageView;
-                    imgInfo.sampler = sampler;
-
-                    writes.push_back({});
-                    auto &write = writes.back();
-                    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    write.dstSet = matDescSet.descriptorSet;
-                    write.dstBinding = binding.binding;
-                    write.dstArrayElement = 0;
-                    write.descriptorCount = 1;
-                    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    write.pImageInfo = &imageInfos.back();
-
+                if (hasBinding) {
+                    matDescSet.textureBindings[binding.binding] = resolvedBinding;
+                    AppendImageWrite(writes, imageInfos, matDescSet.descriptorSet, binding.binding,
+                                     resolvedBinding.imageView, resolvedBinding.sampler);
                     INXLOG_DEBUG("Re-bound texture '", *texturePath, "' to binding ", binding.binding,
                                  " for material '", materialName, "'");
                 } else {
                     INXLOG_WARN("Failed to resolve texture '", *texturePath, "' for material '", materialName,
                                 "' property '", propName, "' — binding default texture");
-                    queueDefaultForBinding(binding);
+                    matDescSet.textureBindings.erase(binding.binding);
                 }
                 break;
             }

@@ -40,20 +40,16 @@ class FilmGrainEffect(FullScreenEffect):
     def setup_passes(self, graph: "RenderGraph", bus: "ResourceBus") -> None:
         from Infernux.rendergraph.graph import Format
 
-        color_in = bus.get("color")
-        if color_in is None:
-            return
-
-        _tex = self.get_or_create_texture
-
-        color_out = _tex(graph, "_filmgrain_out", format=Format.RGBA16_SFLOAT)
-
-        with graph.add_pass("FilmGrain_Apply") as p:
-            p.set_texture("_SourceTex", color_in)
-            p.write_color(color_out)
-            p.set_param("intensity", self.intensity)
-            p.set_param("response", self.response)
-            p.set_param("time", float(_time.perf_counter() % 1000.0))
-            p.fullscreen_quad("film_grain")
-
-        bus.set("color", color_out)
+        self.apply_single_source_effect(
+            graph,
+            bus,
+            output_name="_filmgrain_out",
+            pass_name="FilmGrain_Apply",
+            shader_name="film_grain",
+            format=Format.RGBA16_SFLOAT,
+            params={
+                "intensity": self.intensity,
+                "response": self.response,
+                "time": float(_time.perf_counter() % 1000.0),
+            },
+        )

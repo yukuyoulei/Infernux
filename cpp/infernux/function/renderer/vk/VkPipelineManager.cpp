@@ -4,6 +4,7 @@
  */
 
 #include "VkPipelineManager.h"
+#include "VkRenderUtils.h"
 #include <core/error/InxError.h>
 #include <platform/filesystem/InxPath.h>
 
@@ -267,18 +268,10 @@ VkRenderPass VkPipelineManager::CreateRenderPass(const RenderPassConfig &config)
     subpass.pResolveAttachments = resolveAttachmentRefs.empty() ? nullptr : resolveAttachmentRefs.data();
 
     // Subpass dependency
-    VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dependency.dstStageMask =
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    VkSubpassDependency dependency = vkrender::MakePipelineCompatibleSubpassDependency();
     // Always use WRITE in the dependency so all render passes share the same
     // dependency signature. This keeps pipelines compiled against
     // m_internalRenderPass compatible with every render-graph pass.
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
     // Create render pass
     VkRenderPassCreateInfo renderPassInfo{};
