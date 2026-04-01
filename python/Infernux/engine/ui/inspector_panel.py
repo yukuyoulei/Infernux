@@ -1827,6 +1827,112 @@ class InspectorPanel(EditorPanel):
                 f"Cannot open script — no suitable editor found. "
                 f"Script: {script_path}")
 
+    def _render_component_context_menu(self, ctx, comp, type_name: str,
+                                       selected_object, *, is_native: bool) -> bool:
+        """Render the right-click context menu for a component.
+
+        Returns ``True`` when an action consumed the frame (caller must
+        end_popup + pop_id + return).
+        """
+        popup_id = "comp_ctx" if is_native else "py_comp_ctx"
+        if not (self.__right_click_remove_enabled
+                and ctx.begin_popup_context_item(popup_id)):
+            return False
+
+        # -- Copy Properties --
+        if ctx.selectable(t("inspector.copy_properties")):
+            self._copy_component_properties(comp, type_name, is_native=is_native)
+        # -- Paste as New Component --
+        cb_type = self._get_clipboard_type_name()
+        has_cb = cb_type is not None
+        ctx.begin_disabled(not has_cb)
+        if ctx.selectable(t("inspector.paste_as_new")):
+            self._paste_component_as_new(selected_object)
+            ctx.end_disabled()
+            ctx.end_popup()
+            return True
+        ctx.end_disabled()
+        # -- Paste as Properties --
+        can_paste_props = has_cb and cb_type == type_name
+        ctx.begin_disabled(not can_paste_props)
+        if ctx.selectable(t("inspector.paste_properties")):
+            self._paste_properties_onto(comp, type_name, is_native=is_native)
+        ctx.end_disabled()
+        ctx.separator()
+
+        if not is_native:
+            # -- Show Script (non-built-in only) --
+            _py_guid = getattr(comp, '_script_guid', None)
+            _script_path = None
+            if _py_guid and self.__asset_database:
+                _script_path = self.__asset_database.get_path_from_guid(_py_guid)
+            from Infernux.components.builtin_component import BuiltinComponent
+            if not isinstance(comp, BuiltinComponent) and _script_path:
+                if ctx.selectable(t("inspector.show_script")):
+                    self._open_script_in_editor(_script_path)
+            ctx.separator()
+
+        # -- Remove --
+        if ctx.selectable(t("inspector.remove")):
+            removed = self._remove_component(selected_object, comp, type_name,
+                                             is_native=is_native)
+            if removed:
+                ctx.end_popup()
+                return True
+        ctx.end_popup()
+        return False
+
+    def _remove_component(self, selected_object, comp, type_name: str,
+                          *, is_native: bool) -> bool:
+        """Remove a component via undo system. Returns True if removed."""
+        if is_native:
+            if not hasattr(selected_object, 'remove_component'):
+                return False
+            blockers = []
+            if hasattr(selected_object, 'get_remove_component_blockers'):
+                try:
+                    blockers = list(
+                        selected_object.get_remove_component_blockers(comp) or [])
+                except RuntimeError:
+                    blockers = []
+            can_remove = not blockers
+            if can_remove and hasattr(selected_object, 'can_remove_component'):
+                can_remove = selected_object.can_remove_component(comp)
+            if not can_remove:
+                from Infernux.debug import Debug
+                suffix = (f" required by: {', '.join(blockers)}"
+                          if blockers else "another component depends on it")
+                Debug.log_warning(f"Cannot remove '{type_name}' — {suffix}")
+                return False
+            from Infernux.engine.undo import UndoManager, RemoveNativeComponentCommand
+            mgr = UndoManager.instance()
+            if mgr:
+                mgr.execute(RemoveNativeComponentCommand(
+                    selected_object.id, type_name, comp))
+            else:
+                selected_object.remove_component(comp)
+                _notify_scene_modified()
+                from Infernux.gizmos.collector import notify_scene_changed
+                notify_scene_changed()
+        else:
+            if not hasattr(selected_object, 'remove_py_component'):
+                return False
+            from Infernux.engine.undo import UndoManager, RemovePyComponentCommand
+            mgr = UndoManager.instance()
+            if mgr:
+                mgr.execute(RemovePyComponentCommand(
+                    selected_object.id, comp))
+            elif not selected_object.remove_py_component(comp):
+                from Infernux.debug import Debug
+                Debug.log_warning(
+                    f"Cannot remove '{type_name}' — "
+                    f"another component depends on it")
+                return False
+            else:
+                _notify_scene_modified()
+        self._invalidate_component_structure_cache()
+        return True
+
     def _get_clipboard_type_name(self) -> str | None:
         """Return the type_name from the component clipboard, or None."""
         cb = InspectorPanel._component_clipboard
@@ -2016,67 +2122,11 @@ class InspectorPanel(EditorPanel):
                     default_open=True,
                 )
                 # Right-click context menu
-                if self.__right_click_remove_enabled and ctx.begin_popup_context_item("comp_ctx"):
-                    # -- Copy Properties --
-                    if ctx.selectable(t("inspector.copy_properties")):
-                        self._copy_component_properties(comp, type_name, is_native=True)
-                    # -- Paste as New Component --
-                    cb_type = self._get_clipboard_type_name()
-                    has_cb = cb_type is not None
-                    ctx.begin_disabled(not has_cb)
-                    if ctx.selectable(t("inspector.paste_as_new")):
-                        self._paste_component_as_new(selected_object)
-                        ctx.end_disabled()
-                        ctx.end_popup()
-                        ctx.pop_id()
-                        return
-                    ctx.end_disabled()
-                    # -- Paste as Properties --
-                    can_paste_props = has_cb and cb_type == type_name
-                    ctx.begin_disabled(not can_paste_props)
-                    if ctx.selectable(t("inspector.paste_properties")):
-                        self._paste_properties_onto(comp, type_name, is_native=True)
-                    ctx.end_disabled()
-                    ctx.separator()
-                    # -- Remove --
-                    if ctx.selectable(t("inspector.remove")):
-                        if hasattr(selected_object, 'remove_component'):
-                            blockers = []
-                            if hasattr(selected_object, 'get_remove_component_blockers'):
-                                try:
-                                    blockers = list(selected_object.get_remove_component_blockers(comp) or [])
-                                except RuntimeError:
-                                    blockers = []
-                            can_remove = not blockers
-                            if can_remove and hasattr(selected_object, 'can_remove_component'):
-                                can_remove = selected_object.can_remove_component(comp)
-                            if can_remove:
-                                from Infernux.engine.undo import UndoManager, RemoveNativeComponentCommand
-                                mgr = UndoManager.instance()
-                                if mgr:
-                                    mgr.execute(RemoveNativeComponentCommand(
-                                        selected_object.id, type_name, comp))
-                                    self._invalidate_component_structure_cache()
-                                else:
-                                    selected_object.remove_component(comp)
-                                    self._invalidate_component_structure_cache()
-                                    _notify_scene_modified()
-                                    from Infernux.gizmos.collector import notify_scene_changed
-                                    notify_scene_changed()
-                            else:
-                                from Infernux.debug import Debug
-                                suffix = (
-                                    f" required by: {', '.join(blockers)}"
-                                    if blockers else
-                                    "another component depends on it"
-                                )
-                                Debug.log_warning(
-                                    f"Cannot remove '{type_name}' — "
-                                    f"{suffix}")
-                        ctx.end_popup()
-                        ctx.pop_id()
-                        return
-                    ctx.end_popup()
+                if self._render_component_context_menu(
+                    ctx, comp, type_name, selected_object, is_native=True
+                ):
+                    ctx.pop_id()
+                    return
 
                 if new_enabled != current_enabled:
                     _record_property(comp, "enabled", current_enabled, new_enabled, f"Toggle {type_name}")
@@ -2117,60 +2167,11 @@ class InspectorPanel(EditorPanel):
                     default_open=True,
                 )
                 # Right-click context menu
-                if self.__right_click_remove_enabled and ctx.begin_popup_context_item("py_comp_ctx"):
-                    # -- Copy Properties --
-                    if ctx.selectable(t("inspector.copy_properties")):
-                        self._copy_component_properties(py_comp, type_name, is_native=False)
-                    # -- Paste as New Component --
-                    cb_type = self._get_clipboard_type_name()
-                    has_cb = cb_type is not None
-                    ctx.begin_disabled(not has_cb)
-                    if ctx.selectable(t("inspector.paste_as_new")):
-                        self._paste_component_as_new(selected_object)
-                        ctx.end_disabled()
-                        ctx.end_popup()
-                        ctx.pop_id()
-                        return
-                    ctx.end_disabled()
-                    # -- Paste as Properties --
-                    can_paste_props = has_cb and cb_type == type_name
-                    ctx.begin_disabled(not can_paste_props)
-                    if ctx.selectable(t("inspector.paste_properties")):
-                        self._paste_properties_onto(py_comp, type_name, is_native=False)
-                    ctx.end_disabled()
-                    ctx.separator()
-                    # -- Show Script (non-built-in only) --
-                    _py_guid = getattr(py_comp, '_script_guid', None)
-                    _script_path = None
-                    if _py_guid and self.__asset_database:
-                        _script_path = self.__asset_database.get_path_from_guid(_py_guid)
-                    from Infernux.components.builtin_component import BuiltinComponent
-                    _is_builtin = isinstance(py_comp, BuiltinComponent)
-                    if not _is_builtin and _script_path:
-                        if ctx.selectable(t("inspector.show_script")):
-                            self._open_script_in_editor(_script_path)
-                    ctx.separator()
-                    # -- Remove --
-                    if ctx.selectable(t("inspector.remove")):
-                        if hasattr(selected_object, 'remove_py_component'):
-                            from Infernux.engine.undo import UndoManager, RemovePyComponentCommand
-                            mgr = UndoManager.instance()
-                            if mgr:
-                                mgr.execute(RemovePyComponentCommand(
-                                    selected_object.id, py_comp))
-                                self._invalidate_component_structure_cache()
-                            elif not selected_object.remove_py_component(py_comp):
-                                from Infernux.debug import Debug
-                                Debug.log_warning(
-                                    f"Cannot remove '{type_name}' — "
-                                    f"another component depends on it")
-                            else:
-                                self._invalidate_component_structure_cache()
-                                _notify_scene_modified()
-                        ctx.end_popup()
-                        ctx.pop_id()
-                        return
-                    ctx.end_popup()
+                if self._render_component_context_menu(
+                    ctx, py_comp, type_name, selected_object, is_native=False
+                ):
+                    ctx.pop_id()
+                    return
 
                 if new_enabled != py_comp.enabled:
                     _record_property(py_comp, "enabled", py_comp.enabled, new_enabled, f"Toggle {type_name}")

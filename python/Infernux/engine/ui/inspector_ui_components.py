@@ -33,6 +33,60 @@ def _apply_if_changed(comp, field_name: str, current, new_value):
         comp._call_on_validate()
 
 
+def _render_color_field(ctx, comp, field_name: str, label: str, lw: float,
+                        imgui_id: str, *, default=None, allow_hdr: bool = True):
+    """Render a color bar editor and apply changes via undo system.
+
+    Consolidates the repeated get→pad→label→bar→compare→apply pattern.
+    """
+    if default is None:
+        default = [1.0, 1.0, 1.0, 1.0]
+    cur = list(getattr(comp, field_name, None) or default)
+    while len(cur) < 4:
+        cur.append(1.0)
+    field_label(ctx, label, lw)
+    nr, ng, nb, na = _render_color_bar(ctx, imgui_id, cur[0], cur[1], cur[2], cur[3],
+                                       allow_hdr=allow_hdr)
+    new_color = [nr, ng, nb, na]
+    if tuple(new_color) != tuple(cur[:4]):
+        _apply_if_changed(comp, field_name, cur[:4], new_color)
+
+
+def _render_texture_picker(ctx, comp, field_name: str, label: str, lw: float,
+                           imgui_id: str):
+    """Render a texture object-field picker and apply changes."""
+    IGUI = _igui()
+    from .inspector_components import _picker_assets
+
+    tex_path = str(getattr(comp, field_name, "") or "")
+    display = os.path.basename(tex_path) if tex_path else t("igui.none")
+
+    def _on_drop(payload):
+        new_path = str(payload).replace("\\", "/")
+        if new_path != tex_path:
+            _apply_if_changed(comp, field_name, tex_path, new_path)
+
+    def _on_pick(picked_path):
+        new_path = str(picked_path).replace("\\", "/")
+        if new_path != tex_path:
+            _apply_if_changed(comp, field_name, tex_path, new_path)
+
+    def _on_clear():
+        if tex_path:
+            _apply_if_changed(comp, field_name, tex_path, "")
+
+    def _asset_items(filt):
+        return _picker_assets(filt, "*.png") + _picker_assets(filt, "*.jpg")
+
+    field_label(ctx, label, lw)
+    IGUI.object_field(
+        ctx, imgui_id, display, "Texture",
+        clickable=False, accept="TEXTURE_FILE",
+        on_drop=_on_drop, picker_asset_items=_asset_items,
+        on_pick=_on_pick, on_clear=_on_clear,
+    )
+
+
 def _get_serializable_raw_field(obj, field_name: str, default=None):
     try:
         data = object.__getattribute__(obj, "__dict__")
@@ -614,17 +668,9 @@ def _render_text_typography(ctx, text_comp: UIText):
 def _render_text_fill(ctx, text_comp: UIText):
     if not render_compact_section_header(ctx, t("ui_comp.fill"), level="primary"):
         return
-
     section_lw = max_label_w(ctx, [t("ui_comp.color")])
-    current = getattr(text_comp, "color", [1.0, 1.0, 1.0, 1.0]) or [1.0, 1.0, 1.0, 1.0]
-    while len(current) < 4:
-        current = list(current) + [1.0]
-
-    field_label(ctx, t("ui_comp.color"), section_lw)
-    nr, ng, nb, na = _render_color_bar(ctx, "##ui_text_fill_color", current[0], current[1], current[2], current[3], allow_hdr=True)
-    new_color = [nr, ng, nb, na]
-    if tuple(new_color) != tuple(current[:4]):
-        _apply_if_changed(text_comp, "color", current[:4], new_color)
+    _render_color_field(ctx, text_comp, "color", t("ui_comp.color"), section_lw,
+                        "##ui_text_fill_color")
 
 
 def _render_canvas_inspector(ctx, canvas: UICanvas):
@@ -716,51 +762,12 @@ def _render_image_fill(ctx, img_comp: UIImage):
 
     section_lw = max_label_w(ctx, [t("ui_comp.texture"), t("ui_comp.color")])
 
-    # ── Texture field with IGUI object field + picker ──
-    field_label(ctx, t("ui_comp.texture"), section_lw)
-    tex_path = str(getattr(img_comp, "texture_path", "") or "")
-    display = os.path.basename(tex_path) if tex_path else t("igui.none")
-    IGUI = _igui()
-    from .inspector_components import _picker_assets
-
-    def _on_tex_drop(payload):
-        new_path = str(payload).replace("\\", "/")
-        if new_path != tex_path:
-            _apply_if_changed(img_comp, "texture_path", tex_path, new_path)
-
-    def _on_tex_pick(picked_path):
-        new_path = str(picked_path).replace("\\", "/")
-        if new_path != tex_path:
-            _apply_if_changed(img_comp, "texture_path", tex_path, new_path)
-
-    def _on_tex_clear():
-        if tex_path:
-            _apply_if_changed(img_comp, "texture_path", tex_path, "")
-
-    def _tex_asset_items(filt):
-        return _picker_assets(filt, "*.png") + _picker_assets(filt, "*.jpg")
-
-    IGUI.object_field(
-        ctx,
-        "ui_image_texture",
-        display, "Texture",
-        clickable=False,
-        accept="TEXTURE_FILE",
-        on_drop=_on_tex_drop,
-        picker_asset_items=_tex_asset_items,
-        on_pick=_on_tex_pick,
-        on_clear=_on_tex_clear,
-    )
+    _render_texture_picker(ctx, img_comp, "texture_path", t("ui_comp.texture"),
+                           section_lw, "ui_image_texture")
 
     # ── Tint color ──
-    current = getattr(img_comp, "color", [1.0, 1.0, 1.0, 1.0]) or [1.0, 1.0, 1.0, 1.0]
-    while len(current) < 4:
-        current = list(current) + [1.0]
-    field_label(ctx, t("ui_comp.color"), section_lw)
-    nr, ng, nb, na = _render_color_bar(ctx, "##ui_image_fill_color", current[0], current[1], current[2], current[3], allow_hdr=True)
-    new_color = [nr, ng, nb, na]
-    if tuple(new_color) != tuple(current[:4]):
-        _apply_if_changed(img_comp, "color", current[:4], new_color)
+    _render_color_field(ctx, img_comp, "color", t("ui_comp.color"), section_lw,
+                        "##ui_image_fill_color")
 
 
 def _render_image_inspector(ctx, img_comp: UIImage):
@@ -820,14 +827,8 @@ def _render_button_inspector(ctx, btn_comp: UIButton):
         new_fs = ctx.drag_float("##btn_font_size", btn_comp.font_size, 0.5, 4.0, 256.0)
         _apply_if_changed(btn_comp, "font_size", btn_comp.font_size, new_fs)
 
-        field_label(ctx, t("ui_comp.label_color"), lw)
-        cur_lc = list(btn_comp.label_color or [1, 1, 1, 1])
-        while len(cur_lc) < 4:
-            cur_lc.append(1.0)
-        nr, ng, nb, na = _render_color_bar(ctx, "##btn_label_color", cur_lc[0], cur_lc[1], cur_lc[2], cur_lc[3], allow_hdr=True)
-        new_lc = [nr, ng, nb, na]
-        if tuple(new_lc) != tuple(cur_lc[:4]):
-            _apply_if_changed(btn_comp, "label_color", cur_lc[:4], new_lc)
+        _render_color_field(ctx, btn_comp, "label_color", t("ui_comp.label_color"), lw,
+                            "##btn_label_color")
 
         field_label(ctx, t("ui_comp.line_height"), lw)
         new_lh = ctx.drag_float("##btn_line_height", btn_comp.line_height, 0.01, 0.5, 5.0)
@@ -888,50 +889,11 @@ def _render_button_inspector(ctx, btn_comp: UIButton):
     if render_compact_section_header(ctx, t("ui_comp.fill"), level="primary"):
         lw = max_label_w(ctx, [t("ui_comp.texture"), t("ui_comp.background")])
 
-        # Texture field with IGUI object field + picker
-        field_label(ctx, t("ui_comp.texture"), lw)
-        tex_path = str(getattr(btn_comp, "texture_path", "") or "")
-        display = os.path.basename(tex_path) if tex_path else t("igui.none")
-        IGUI = _igui()
-        from .inspector_components import _picker_assets
+        _render_texture_picker(ctx, btn_comp, "texture_path", t("ui_comp.texture"),
+                               lw, "btn_texture")
 
-        def _on_tex_drop(payload):
-            new_path = str(payload).replace("\\", "/")
-            if new_path != tex_path:
-                _apply_if_changed(btn_comp, "texture_path", tex_path, new_path)
-
-        def _on_tex_pick(picked_path):
-            new_path = str(picked_path).replace("\\", "/")
-            if new_path != tex_path:
-                _apply_if_changed(btn_comp, "texture_path", tex_path, new_path)
-
-        def _on_tex_clear():
-            if tex_path:
-                _apply_if_changed(btn_comp, "texture_path", tex_path, "")
-
-        def _tex_asset_items(filt):
-            return _picker_assets(filt, "*.png") + _picker_assets(filt, "*.jpg")
-
-        IGUI.object_field(
-            ctx,
-            "btn_texture",
-            display, "Texture",
-            clickable=False,
-            accept="TEXTURE_FILE",
-            on_drop=_on_tex_drop,
-            picker_asset_items=_tex_asset_items,
-            on_pick=_on_tex_pick,
-            on_clear=_on_tex_clear,
-        )
-
-        field_label(ctx, t("ui_comp.background"), lw)
-        cur_bg = list(btn_comp.background_color or list(Theme.UI_DEFAULT_BUTTON_BG))
-        while len(cur_bg) < 4:
-            cur_bg.append(1.0)
-        nr, ng, nb, na = _render_color_bar(ctx, "##btn_bg_color", cur_bg[0], cur_bg[1], cur_bg[2], cur_bg[3], allow_hdr=True)
-        new_bg = [nr, ng, nb, na]
-        if tuple(new_bg) != tuple(cur_bg[:4]):
-            _apply_if_changed(btn_comp, "background_color", cur_bg[:4], new_bg)
+        _render_color_field(ctx, btn_comp, "background_color", t("ui_comp.background"), lw,
+                            "##btn_bg_color", default=list(Theme.UI_DEFAULT_BUTTON_BG))
 
     # ── Color Tint ──
     if render_compact_section_header(ctx, t("ui_comp.color_tint"), level="secondary"):
@@ -942,14 +904,8 @@ def _render_button_inspector(ctx, btn_comp: UIButton):
             (t("ui_comp.tint_pressed"), "pressed_color"),
             (t("ui_comp.tint_disabled"), "disabled_color"),
         ]:
-            field_label(ctx, label_str, lw)
-            cur = list(getattr(btn_comp, field_name) or [1, 1, 1, 1])
-            while len(cur) < 4:
-                cur.append(1.0)
-            nr, ng, nb, na = _render_color_bar(ctx, f"##btn_{field_name}", cur[0], cur[1], cur[2], cur[3], allow_hdr=True)
-            new_val = [nr, ng, nb, na]
-            if tuple(new_val) != tuple(cur[:4]):
-                _apply_if_changed(btn_comp, field_name, cur[:4], new_val)
+            _render_color_field(ctx, btn_comp, field_name, label_str, lw,
+                                f"##btn_{field_name}")
 
     # ── Events — On Click () ──
     _render_on_click_events(ctx, btn_comp)
