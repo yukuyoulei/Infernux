@@ -445,38 +445,55 @@ def get_raw_field_value(component: 'InxComponent', field_name: str) -> Any:
     return getattr(component, field_name)
 
 
+# ── Type → FieldType dispatch tables (used by _infer_field_type) ──
+
+_DIRECT_TYPE_TO_FIELD: dict = {
+    int:   FieldType.INT,
+    float: FieldType.FLOAT,
+    bool:  FieldType.BOOL,
+    str:   FieldType.STRING,
+}
+
+_TYPE_NAME_TO_FIELD: dict = {
+    'Vec2': FieldType.VEC2,    'Vector2': FieldType.VEC2,    'vector2': FieldType.VEC2,
+    'Vec3': FieldType.VEC3,    'Vector3': FieldType.VEC3,    'vector3': FieldType.VEC3,
+    'vec4f': FieldType.VEC4,   'Vec4': FieldType.VEC4,
+    'Vector4': FieldType.VEC4, 'vector4': FieldType.VEC4,
+    'GameObject': FieldType.GAME_OBJECT,
+    'Material': FieldType.MATERIAL,
+    'Texture': FieldType.TEXTURE,    'TextureRef': FieldType.TEXTURE,
+    'Shader': FieldType.SHADER,     'ShaderRef': FieldType.SHADER,
+    'ShaderAssetInfo': FieldType.SHADER,
+    'AudioClip': FieldType.ASSET,   'AudioClipRef': FieldType.ASSET,
+    'ComponentRef': FieldType.COMPONENT,
+}
+
+_DEFAULT_TYPE_NAME_TO_FIELD: dict = {
+    'Material': FieldType.MATERIAL,     'InxMaterial': FieldType.MATERIAL,
+    'Texture': FieldType.TEXTURE,       'TextureRef': FieldType.TEXTURE,
+    'Shader': FieldType.SHADER,         'ShaderRef': FieldType.SHADER,
+    'ShaderAssetInfo': FieldType.SHADER,
+    'AudioClip': FieldType.ASSET,       'AudioClipRef': FieldType.ASSET,
+}
+
+
 def _infer_field_type(python_type: Optional[Type], default: Any) -> FieldType:
     """Infer FieldType from Python type annotation or default value."""
     if python_type is not None:
+        # Direct type match (int, float, bool, str)
+        result = _DIRECT_TYPE_TO_FIELD.get(python_type)
+        if result is not None:
+            return result
+
+        # Name-based match (vectors, asset refs, etc.)
         type_name = getattr(python_type, '__name__', str(python_type))
-        
-        if python_type == int:
-            return FieldType.INT
-        elif python_type == float:
-            return FieldType.FLOAT
-        elif python_type == bool:
-            return FieldType.BOOL
-        elif python_type == str:
-            return FieldType.STRING
-        elif type_name in ('Vec2', 'Vector2', 'vector2'):
-            return FieldType.VEC2
-        elif type_name in ('Vec3', 'Vector3', 'vector3'):
-            return FieldType.VEC3
-        elif type_name in ('vec4f', 'Vec4', 'Vector4', 'vector4'):
-            return FieldType.VEC4
-        elif type_name == 'GameObject':
-            return FieldType.GAME_OBJECT
-        elif type_name == 'Material':
-            return FieldType.MATERIAL
-        elif type_name in ('Texture', 'TextureRef'):
-            return FieldType.TEXTURE
-        elif type_name in ('Shader', 'ShaderRef', 'ShaderAssetInfo'):
-            return FieldType.SHADER
-        elif type_name in ('AudioClip', 'AudioClipRef'):
-            return FieldType.ASSET
-        elif isinstance(python_type, type) and issubclass(python_type, Enum):
+        result = _TYPE_NAME_TO_FIELD.get(type_name)
+        if result is not None:
+            return result
+
+        if isinstance(python_type, type) and issubclass(python_type, Enum):
             return FieldType.ENUM
-        elif hasattr(python_type, '__origin__') and python_type.__origin__ in (list, tuple):
+        if hasattr(python_type, '__origin__') and python_type.__origin__ in (list, tuple):
             return FieldType.LIST
 
         # SerializableObject subclass detection
@@ -486,10 +503,6 @@ def _infer_field_type(python_type: Optional[Type], default: Any) -> FieldType:
                 return FieldType.SERIALIZABLE_OBJECT
         except ImportError:
             pass
-
-        # ComponentRef detection
-        if type_name == 'ComponentRef':
-            return FieldType.COMPONENT
 
         # InxComponent subclass → COMPONENT (e.g. ``text: UIText``)
         try:
@@ -517,37 +530,31 @@ def _infer_field_type(python_type: Optional[Type], default: Any) -> FieldType:
         except ImportError:
             pass
 
+        # Order matters: Enum before int (IntEnum is both), bool before int
         if isinstance(default, Enum):
-            # Check Enum before int — IntEnum is both int and Enum
             return FieldType.ENUM
-        elif isinstance(default, bool):
+        if isinstance(default, bool):
             return FieldType.BOOL
-        elif isinstance(default, int):
-            # Python int -> INT (5 is int, 5.0 is float)
+        if isinstance(default, int):
             return FieldType.INT
-        elif isinstance(default, float):
+        if isinstance(default, float):
             return FieldType.FLOAT
-        elif isinstance(default, str):
+        if isinstance(default, str):
             return FieldType.STRING
-        elif hasattr(default, 'x') and hasattr(default, 'y') and hasattr(default, 'z') and hasattr(default, 'w'):
-            return FieldType.VEC4
-        elif hasattr(default, 'x') and hasattr(default, 'y') and hasattr(default, 'z'):
-            return FieldType.VEC3
-        elif hasattr(default, 'x') and hasattr(default, 'y'):
+        if hasattr(default, 'x') and hasattr(default, 'y'):
+            if hasattr(default, 'z') and hasattr(default, 'w'):
+                return FieldType.VEC4
+            if hasattr(default, 'z'):
+                return FieldType.VEC3
             return FieldType.VEC2
-        elif isinstance(default, (list, tuple)):
+        if isinstance(default, (list, tuple)):
             return FieldType.LIST
-        # Check asset ref types by class name (avoids circular import)
-        default_type_name = type(default).__name__
-        if default_type_name in ('Material', 'InxMaterial'):
-            return FieldType.MATERIAL
-        if default_type_name in ('Texture', 'TextureRef'):
-            return FieldType.TEXTURE
-        elif default_type_name in ('Shader', 'ShaderRef', 'ShaderAssetInfo'):
-            return FieldType.SHADER
-        elif default_type_name in ('AudioClip', 'AudioClipRef'):
-            return FieldType.ASSET
-    
+
+        # Asset ref types by class name (avoids circular import)
+        result = _DEFAULT_TYPE_NAME_TO_FIELD.get(type(default).__name__)
+        if result is not None:
+            return result
+
     return FieldType.UNKNOWN
 
 
