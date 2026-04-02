@@ -1,10 +1,11 @@
 """
 GameBuilder — packages a standalone native game from an Infernux project.
 
-Uses **Nuitka** to compile the Python entry script into a native EXE.
-All engine code, dependencies, and the CPython runtime are bundled into
-a self-contained directory.  User scripts (.py in Assets/) are compiled
-to .pyc with ``py_compile`` for source protection.
+Uses **Nuitka** to compile the Python-based engine bootstrap into a native
+EXE. All engine code, dependencies, and the CPython runtime are bundled
+into a self-contained directory. Project-authored C# gameplay scripts are
+copied under ``Data/Scripts`` and built into ``Data/Managed`` with
+``dotnet build``.
 
 Output layout::
 
@@ -17,8 +18,10 @@ Output layout::
                 _Infernux.*.pyd ← pybind11 extension module
                 SDL3.dll …       ← DLLs (for os.add_dll_directory)
         Data/
-            Assets/             ← game scenes, scripts(.pyc), textures, models
+            Assets/             ← game scenes, textures, models
             ProjectSettings/    ← build & tag-layer settings
+            Scripts/            ← copied C# project sources
+            Managed/            ← compiled C# gameplay assemblies
             materials/
             Splash/             ← splash images + .infsplash video data
             BuildManifest.json  ← display mode, window size, splash config
@@ -28,7 +31,6 @@ from __future__ import annotations
 
 import json
 import os
-import py_compile
 import shutil
 import struct
 import subprocess
@@ -38,6 +40,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from Infernux.debug import Debug
+from Infernux.engine.csharp_tooling import ensure_csharp_tooling
 from Infernux.engine.i18n import t
 from Infernux.engine.nuitka_builder import NuitkaBuilder
 
@@ -104,7 +107,7 @@ class GameBuilder:
     """Build a standalone native game distribution using Nuitka."""
 
     OUTPUT_MARKER_FILENAME = ".infernux-build-output"
-    _GAME_DATA_DIRS = ["Assets", "ProjectSettings", "materials"]
+    _GAME_DATA_DIRS = ["Assets", "ProjectSettings", "materials", "Scripts"]
     _EXCLUDE_PATTERNS = {"__pycache__", ".git", ".gitignore", ".infernux-engine-lock.json"}
     _ICON_EXTS = {".png", ".jpg", ".jpeg", ".ico"}
 
@@ -157,14 +160,11 @@ class GameBuilder:
         _p("清理输出目录 Cleaning output...", 0.02)
         self._clean_output()
 
-        _p("收集用户依赖 Collecting user dependencies...", 0.04)
-        user_packages = self._collect_user_dependencies()
-
         _p("生成入口脚本 Generating boot script...", 0.05)
         boot_script = self._generate_boot_script()
 
         _p("Nuitka 原生编译 Nuitka native compilation...", 0.06)
-        dist_dir = self._run_nuitka(boot_script, on_progress, user_packages, cancel_event)
+        dist_dir = self._run_nuitka(boot_script, on_progress, cancel_event)
 
         _p("整理输出目录 Organizing output directory...", 0.86)
         final_dir = self._organize_output(dist_dir)
@@ -172,8 +172,8 @@ class GameBuilder:
         _p("复制游戏数据 Copying game data...", 0.88)
         self._copy_game_data(final_dir)
 
-        _p("编译用户脚本 Compiling user scripts...", 0.91)
-        self._compile_user_scripts(final_dir)
+        _p("构建 C# 脚本 Building C# scripts...", 0.91)
+        self._build_csharp_scripts(final_dir)
 
         _p("处理开场画面 Processing splash items...", 0.93)
         self._process_splash_items(final_dir)
@@ -410,7 +410,6 @@ except Exception as _exc:
         self,
         boot_script: str,
         on_progress: Optional[Callable[[str, float], None]],
-        user_packages: Optional[List[str]] = None,
         cancel_event: Optional[threading.Event] = None,
     ) -> str:
         """Invoke NuitkaBuilder. Returns the dist directory path."""
@@ -424,8 +423,6 @@ except Exception as _exc:
             output_filename=f"{self.project_name}.exe",
             product_name=self.project_name,
             icon_path=selected_icon if selected_icon and os.path.isfile(selected_icon) else None,
-            extra_include_packages=user_packages or [],
-            extra_requirements_files=self._project_requirement_files(),
         )
 
         def _nk_progress(msg: str, pct: float):
@@ -435,16 +432,6 @@ except Exception as _exc:
                 on_progress(msg, mapped)
 
         return nk.build(on_progress=_nk_progress, cancel_event=cancel_event)
-
-    def _project_requirement_files(self) -> List[str]:
-        req_path = os.path.join(self.project_path, "requirements.txt")
-        if os.path.isfile(req_path):
-            return [req_path]
-        return []
-
-    # ------------------------------------------------------------------
-    # Organize output: move dist contents to the final output directory
-    # ------------------------------------------------------------------
 
     def _organize_output(self, dist_dir: str) -> str:
         """Move Nuitka dist contents from staging into self.output_dir.
@@ -478,7 +465,7 @@ except Exception as _exc:
     # ------------------------------------------------------------------
 
     def _copy_game_data(self, final_dir: str):
-        """Copy Assets, ProjectSettings, materials to Data/."""
+        """Copy project data folders into ``Data/``."""
         data_dir = os.path.join(final_dir, "Data")
         ignore = shutil.ignore_patterns(*self._EXCLUDE_PATTERNS)
         for dirname in self._GAME_DATA_DIRS:
@@ -488,178 +475,46 @@ except Exception as _exc:
                 shutil.copytree(src, dst, ignore=ignore)
 
     # ------------------------------------------------------------------
-    # Collect user script dependencies
+    # Build project C# scripts
     # ------------------------------------------------------------------
 
-    # Packages that are already bundled by the engine or excluded on
-    # purpose — never add them via --include-package even if a user
-    # script imports them.
-    _BUILTIN_MODULES = frozenset({
-        # Standard library (always available in the Nuitka bundle)
-        *sys.stdlib_module_names,
-        # Engine packages (already followed by Nuitka via boot.py)
-        "Infernux",
-        # Excluded editor-only / build-only packages
-        "watchdog", "PIL", "cv2", "imageio", "psd_tools",
-        "tkinter", "unittest", "test", "pip", "setuptools",
-        "distutils", "ensurepip",
-    })
-
-    def _collect_internal_asset_module_names(self) -> set[str]:
-        """Return top-level module names that belong to the project's Assets tree."""
-        names: set[str] = {"Assets"}
-        assets_dir = os.path.join(self.project_path, "Assets")
-        if not os.path.isdir(assets_dir):
-            return names
-
-        for entry in os.scandir(assets_dir):
-            name = entry.name
-            if name.startswith(".") or name in {"__pycache__"}:
-                continue
-            if entry.is_dir():
-                names.add(name)
-                continue
-            stem, ext = os.path.splitext(name)
-            if ext in {".py", ".pyc"} and stem and not stem.startswith("_"):
-                names.add(stem)
-        return names
-
-    def _collect_user_dependencies(self) -> List[str]:
-        """Scan user scripts for third-party imports and return package names.
-
-        Detection sources (in order of priority):
-        1. ``requirements.txt`` in the project root — explicit user list.
-           Lines starting with ``#`` or empty lines are ignored.
-           Version specifiers are stripped (``torch>=2.0`` → ``torch``).
-        2. AST-based import scanning of all ``.py`` files under ``Assets/``.
-           Only top-level package names are collected (``import a.b`` → ``a``).
-
-        The results are de-duplicated, stdlib/engine names are filtered out,
-        and only packages actually installed in the current environment are
-        returned (to avoid Nuitka errors on typos or conditional imports).
-        """
-        import ast
-        import importlib.util
-        import re
-
-        found: set[str] = set()
-
-        # --- Source 1: project requirements.txt -------------------------
-        req_path = os.path.join(self.project_path, "requirements.txt")
-        if os.path.isfile(req_path):
-            Debug.log_internal(f"Found project requirements.txt: {req_path}")
-            with open(req_path, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or line.startswith("-"):
-                        continue
-                    # Strip version specifiers: "torch>=2.0" → "torch"
-                    pkg = re.split(r"[><=!;\[]", line, maxsplit=1)[0].strip()
-                    if pkg:
-                        found.add(pkg)
-
-        # --- Source 2: AST import scanning ------------------------------
-        assets_dir = os.path.join(self.project_path, "Assets")
-        if os.path.isdir(assets_dir):
-            for root, _, files in os.walk(assets_dir):
-                for fname in files:
-                    if not fname.endswith(".py"):
-                        continue
-                    fpath = os.path.join(root, fname)
-                    try:
-                        with open(fpath, "r", encoding="utf-8", errors="replace") as f:
-                            tree = ast.parse(f.read(), filename=fpath)
-                    except SyntaxError:
-                        continue
-                    for node in ast.walk(tree):
-                        if isinstance(node, ast.Import):
-                            for alias in node.names:
-                                found.add(alias.name.split(".")[0])
-                        elif isinstance(node, ast.ImportFrom):
-                            if node.module and node.level == 0:
-                                found.add(node.module.split(".")[0])
-
-        # --- Filter: remove stdlib / engine / excluded ------------------
-        found -= self._BUILTIN_MODULES
-        found -= self._collect_internal_asset_module_names()
-
-        # Only keep packages that are actually importable in the current
-        # environment so Nuitka doesn't error on stale or optional imports.
-        verified: list[str] = []
-        for pkg in sorted(found):
-            if importlib.util.find_spec(pkg) is not None:
-                verified.append(pkg)
-            else:
-                Debug.log_warning(
-                    f"User script dependency '{pkg}' not installed — skipping"
-                )
-
-        if verified:
-            Debug.log_internal(
-                f"User dependencies to bundle: {', '.join(verified)}"
-            )
-        return verified
-
-    # ------------------------------------------------------------------
-    # Compile user scripts
-    # ------------------------------------------------------------------
-
-    def _compile_user_scripts(self, final_dir: str):
-        """Compile .py in Data/Assets/ to .pyc and remove originals.
-
-        Also generates ``Data/_script_guid_map.json`` so that the
-        player can resolve script GUIDs without the original ``.py``
-        files (the C++ AssetDatabase only recognises ``.py``).
-        """
-        assets_dir = os.path.join(final_dir, "Data", "Assets")
-        if not os.path.isdir(assets_dir):
+    def _build_csharp_scripts(self, final_dir: str):
+        """Build the copied C# script project into ``Data/Managed`` when present."""
+        data_dir = os.path.join(final_dir, "Data")
+        scripts_dir = os.path.join(data_dir, "Scripts")
+        if not os.path.isdir(scripts_dir):
             return
 
-        data_dir = os.path.join(final_dir, "Data")
-        guid_map: dict[str, str] = {}
+        ensure_csharp_tooling(data_dir, self.project_name)
 
-        # First pass: build GUID → .pyc relative-path map from .meta
-        for root, _dirs, files in os.walk(assets_dir):
-            for fname in files:
-                if fname.endswith(".py"):
-                    py_path = os.path.join(root, fname)
-                    meta_path = py_path + ".meta"
-                    if os.path.isfile(meta_path):
-                        try:
-                            with open(meta_path, "r", encoding="utf-8") as mf:
-                                meta = json.load(mf)
-                            guid = (meta.get("metadata", {})
-                                        .get("guid", {})
-                                        .get("value", ""))
-                            if guid:
-                                pyc_rel = os.path.relpath(
-                                    py_path + "c", data_dir
-                                ).replace("\\", "/")
-                                guid_map[guid] = pyc_rel
-                        except (json.JSONDecodeError, OSError):
-                            pass
+        csproj_path = os.path.join(scripts_dir, "Infernux.GameScripts.csproj")
+        if not os.path.isfile(csproj_path):
+            return
 
-        # Second pass: compile and remove originals
-        for root, _dirs, files in os.walk(assets_dir):
-            for fname in files:
-                if fname.endswith(".py"):
-                    py_path = os.path.join(root, fname)
-                    try:
-                        py_compile.compile(
-                            py_path,
-                            cfile=py_path + "c",
-                            optimize=2,
-                            doraise=True,
-                        )
-                        os.remove(py_path)
-                    except py_compile.PyCompileError:
-                        pass
+        managed_dir = os.path.join(data_dir, "Managed")
+        os.makedirs(managed_dir, exist_ok=True)
 
-        # Write manifest
-        if guid_map:
-            manifest_path = os.path.join(data_dir, "_script_guid_map.json")
-            with open(manifest_path, "w", encoding="utf-8") as mf:
-                json.dump(guid_map, mf)
+        try:
+            completed = subprocess.run(
+                ["dotnet", "build", csproj_path, "-c", "Release", "-nologo", "-clp:ErrorsOnly", "-o", managed_dir],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=300,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("dotnet CLI was not found. Install the .NET SDK to build C# scripts.") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("dotnet build timed out while compiling C# gameplay scripts.") from exc
+        except subprocess.CalledProcessError as exc:
+            output = "\n".join(part for part in (exc.stdout, exc.stderr) if part).strip()
+            raise RuntimeError(output or "dotnet build failed for C# gameplay scripts.") from exc
+
+        if completed.stdout.strip():
+            Debug.log_internal(completed.stdout.strip())
 
     # ------------------------------------------------------------------
     # Splash items

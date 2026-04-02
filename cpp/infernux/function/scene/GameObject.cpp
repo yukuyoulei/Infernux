@@ -2,6 +2,7 @@
 #include "BoxCollider.h"
 #include "Collider.h"
 #include "ComponentFactory.h"
+#include "ManagedComponentProxy.h"
 #include "MeshRenderer.h"
 #include "PyComponentProxy.h"
 #include "Rigidbody.h"
@@ -611,11 +612,21 @@ std::string GameObject::Serialize() const
     // Serialize Transform
     j["transform"] = json::parse(m_transform.Serialize());
 
-    // Serialize C++ components (excluding PyComponentProxy)
+    // Serialize native C++ components (script proxies are emitted separately).
     json componentsArray = json::array();
+    json managedComponentsArray = json::array();
     for (const auto &comp : m_components) {
         if (dynamic_cast<const PyComponentProxy *>(comp.get())) {
             continue; // PyComponentProxy serialized separately
+        }
+        if (const auto *managedProxy = dynamic_cast<const ManagedComponentProxy *>(comp.get())) {
+            try {
+                json managedJson = json::parse(managedProxy->Serialize());
+                managedComponentsArray.push_back(managedJson);
+            } catch (const std::exception &e) {
+                INXLOG_ERROR("[GameObject] Failed to serialize ManagedComponent on '", m_name, "': ", e.what());
+            }
+            continue;
         }
         try {
             json compJson = json::parse(comp->Serialize());
@@ -625,6 +636,7 @@ std::string GameObject::Serialize() const
         }
     }
     j["components"] = componentsArray;
+    j["managed_components"] = managedComponentsArray;
 
     // Serialize PyComponentProxy (Python components) separately
     json pyComponentsArray = json::array();
@@ -816,16 +828,31 @@ std::unique_ptr<GameObject> GameObject::Clone(Scene *scene) const
                 pending.gameObjectId = obj->GetID();
                 pending.typeName = proxy->GetPyTypeName();
                 pending.scriptGuid = proxy->GetScriptGuid();
+                pending.scriptLanguage = proxy->GetScriptLanguage();
                 pending.enabled = proxy->IsEnabled();
                 pending.fieldsJson = proxy->SerializePyFields();
                 scene->AddPendingPyComponent(std::move(pending));
             }
-        } else {
-            auto clonedComp = comp->Clone();
-            if (clonedComp) {
-                clonedComp->SetGameObject(obj.get());
-                obj->m_components.push_back(std::move(clonedComp));
+            continue;
+        }
+
+        if (const auto *managedProxy = dynamic_cast<const ManagedComponentProxy *>(comp.get())) {
+            if (scene) {
+                Scene::PendingPyComponent pending;
+                pending.gameObjectId = obj->GetID();
+                pending.typeName = managedProxy->GetManagedTypeName();
+                pending.scriptGuid = managedProxy->GetScriptGuid();
+                pending.scriptLanguage = "csharp";
+                pending.enabled = managedProxy->IsEnabled();
+                scene->AddPendingPyComponent(std::move(pending));
             }
+            continue;
+        }
+
+        auto clonedComp = comp->Clone();
+        if (clonedComp) {
+            clonedComp->SetGameObject(obj.get());
+            obj->m_components.push_back(std::move(clonedComp));
         }
     }
 

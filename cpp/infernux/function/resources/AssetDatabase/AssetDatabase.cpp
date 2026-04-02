@@ -591,7 +591,7 @@ ResourceType AssetDatabase::GetResourcesType(const std::string &extensionName) c
     if (ext == ".meta") {
         return ResourceType::Meta;
     }
-    if (ext == ".py") {
+    if (ext == ".py" || ext == ".cs") {
         return ResourceType::Script;
     }
     static const std::unordered_set<std::string> textureExtensions = {".png", ".jpg", ".jpeg", ".bmp", ".tga",

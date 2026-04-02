@@ -1,13 +1,13 @@
-"""ResourcesManager — file-system watcher for live asset reloading.
+"""ResourcesManager - file-system watcher for live asset reloading.
 
 Monitors the project's asset directory for changes and triggers
-shader / script reloads automatically.
+shader / script validation automatically.
 
 Example::
 
     mgr = ResourcesManager(project_path, engine)
     mgr.start()
-    # … in frame loop:
+    # in frame loop:
     mgr.process_pending_reloads()
     # on shutdown:
     mgr.cleanup()
@@ -58,7 +58,7 @@ class ResourcesManager:
     def unregister_script_reload_callback(self, callback: Callable) -> None: ...
 
     def register_script_catalog_callback(self, callback: Callable) -> None:
-        """Register a callback for script creation/deletion events."""
+        """Register a callback for script-source creation/deletion events."""
         ...
 
     def unregister_script_catalog_callback(self, callback: Callable) -> None: ...

@@ -1,9 +1,9 @@
-"""ScriptCompiler — syntax and import checking for user scripts.
+"""ScriptCompiler - validation for user script sources.
 
 Example::
 
     compiler = get_script_compiler()
-    errors = compiler.check_file("/path/to/script.py")
+    errors = compiler.check_file("/path/to/script.cs")
     for err in errors:
         print(err)
 """
@@ -26,7 +26,7 @@ class ScriptError:
 
 
 class ScriptCompiler:
-    """Validates Python scripts for syntax and import errors."""
+    """Validates Python and C# scripts for compile errors."""
 
     def __init__(self) -> None: ...
 
@@ -34,7 +34,7 @@ class ScriptCompiler:
         """Check *file_path* for syntax and compile errors.
 
         Args:
-            file_path: Absolute path to a ``.py`` file.
+            file_path: Absolute path to a ``.py`` or ``.cs`` file.
 
         Returns:
             List of :class:`ScriptError` objects (empty if clean).

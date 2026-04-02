@@ -12,68 +12,37 @@ class ScriptLoadError(Exception):
     ...
 
 
-def set_script_error(file_path: str, message: str) -> None:
-    """Record an error message for a script (no exception object needed)."""
-    ...
+def set_script_error(file_path: str, message: str) -> None: ...
+def get_script_errors() -> Dict[str, str]: ...
+def has_script_errors() -> bool: ...
+def get_script_error_by_path(file_path: str) -> Optional[str]: ...
 
-def get_script_errors() -> Dict[str, str]:
-    """Return a snapshot of all currently broken scripts {path: traceback}."""
-    ...
 
-def has_script_errors() -> bool:
-    """Return True if any loaded script has unresolved errors."""
-    ...
-
-def get_script_error_by_path(file_path: str) -> Optional[str]:
-    """Return the error string for *file_path*, or ``None`` if it loaded OK."""
+def get_component_names_from_file(file_path: str, asset_database: Optional[object] = ...) -> List[str]:
+    """Return attachable component names declared by a script file."""
     ...
 
 
 def load_component_from_file(file_path: str) -> Type[InxComponent]:
-    """Load the first InxComponent subclass from a Python file.
-
-    Raises:
-        ScriptLoadError: If file doesn't exist, can't be imported,
-                         or contains no components.
-    """
+    """Load the single attachable component class from a script file."""
     ...
 
 
 def load_all_components_from_file(file_path: str) -> List[Type[InxComponent]]:
-    """Load all InxComponent subclasses from a Python file.
-
-    Raises:
-        ScriptLoadError: If file doesn't exist or can't be imported.
-    """
+    """Load all attachable component classes from a script file."""
     ...
 
 
-def create_component_instance(component_class: Type[InxComponent]) -> InxComponent:
-    """Create an instance of a component class.
-
-    Raises:
-        ScriptLoadError: If instantiation fails.
-    """
-    ...
+def create_component_instance(component_class: Type[InxComponent]) -> InxComponent: ...
 
 
 def load_and_create_component(
-    file_path: str, asset_database: Optional[object] = ...
+    file_path: str,
+    asset_database: Optional[object] = ...,
+    type_name: str = ...,
 ) -> Optional[InxComponent]:
-    """Load first component from file and create an instance.
-
-    Returns ``None`` if the script has errors (already logged).
-
-    Raises:
-        ScriptLoadError: If AssetDatabase is missing or GUID cannot be resolved.
-    """
+    """Load a component from file and create an instance."""
     ...
 
 
-def get_component_info(component_class: Type[InxComponent]) -> dict:
-    """Extract metadata from a component class.
-
-    Returns:
-        Dict with keys ``name``, ``module``, ``docstring``, ``fields``.
-    """
-    ...
+def get_component_info(component_class: Type[InxComponent]) -> dict: ...

@@ -34,6 +34,78 @@ class ResourceChangeHandler(FileSystemEventHandler):
         self._shader_cache_invalidation_callbacks = []
         # Get AssetDatabase for resource registration
         self._asset_database = engine.get_asset_database()
+        # Track C# compile errors per project so successful rebuilds can
+        # clear stale diagnostics from previously failing files.
+        self._csharp_error_files_by_project = {}
+
+    @staticmethod
+    def _normalized_path(file_path: str) -> str:
+        return os.path.normcase(os.path.normpath(os.path.abspath(file_path)))
+
+    @staticmethod
+    def _is_python_script(file_path: str) -> bool:
+        return file_path.replace("\\", "/").lower().endswith(".py")
+
+    @staticmethod
+    def _is_csharp_script(file_path: str) -> bool:
+        return file_path.replace("\\", "/").lower().endswith(".cs")
+
+    @classmethod
+    def _is_script_source(cls, file_path: str) -> bool:
+        return cls._is_csharp_script(file_path)
+
+    def _get_csharp_project_key(self, file_path: str) -> str:
+        csproj_path = self._script_compiler._find_csharp_project(file_path)
+        if csproj_path:
+            return self._normalized_path(csproj_path)
+        return self._normalized_path(file_path)
+
+    def _group_script_errors(self, fallback_file: str, errors) -> dict[str, list[str]]:
+        grouped = {}
+        for error in errors:
+            target_path = self._normalized_path(error.file_path or fallback_file)
+            location = (
+                f"{os.path.basename(target_path)}:{error.line_number}"
+                if error.line_number > 0
+                else os.path.basename(target_path)
+            )
+            grouped.setdefault(target_path, []).append(f"{location}  {error.message}")
+        return grouped
+
+    def _apply_script_errors(self, file_path: str, errors) -> None:
+        from Infernux.components.script_loader import set_script_error, _clear_script_error
+
+        normalized_file_path = self._normalized_path(file_path)
+        grouped = self._group_script_errors(file_path, errors)
+
+        if self._is_csharp_script(file_path):
+            project_key = self._get_csharp_project_key(file_path)
+            stale_files = self._csharp_error_files_by_project.get(project_key, set()) - set(grouped)
+            for stale_path in stale_files:
+                _clear_script_error(stale_path)
+            if normalized_file_path not in grouped:
+                _clear_script_error(normalized_file_path)
+            for error_path, messages in grouped.items():
+                set_script_error(error_path, "\n".join(messages))
+            self._csharp_error_files_by_project[project_key] = set(grouped)
+            return
+
+        combined = "\n".join(
+            f"{os.path.basename(error.file_path)}:{error.line_number}  {error.message}"
+            for error in errors
+        )
+        set_script_error(normalized_file_path, combined)
+
+    def _clear_script_errors(self, file_path: str) -> None:
+        from Infernux.components.script_loader import _clear_script_error
+
+        normalized_file_path = self._normalized_path(file_path)
+        _clear_script_error(normalized_file_path)
+
+        if self._is_csharp_script(file_path):
+            project_key = self._get_csharp_project_key(file_path)
+            for error_path in self._csharp_error_files_by_project.pop(project_key, set()):
+                _clear_script_error(error_path)
 
     def _should_ignore(self, file_path: str) -> bool:
         """Ignore meta/temp/cache files to avoid GUID churn and noisy events."""
@@ -41,6 +113,10 @@ class ResourceChangeHandler(FileSystemEventHandler):
         if lower.endswith(".meta") or lower.endswith(".meta.tmp") or lower.endswith(".tmp"):
             return True
         if "/__pycache__/" in lower or lower.endswith(".pyc"):
+            return True
+        if "/.vs/" in lower or "/bin/" in lower or "/obj/" in lower:
+            return True
+        if lower.endswith((".dll", ".pdb", ".deps.json", ".runtimeconfig.json")):
             return True
         basename = lower.rsplit("/", 1)[-1]
         if basename == "imgui.ini":
@@ -80,7 +156,7 @@ class ResourceChangeHandler(FileSystemEventHandler):
                 self._asset_database.delete_asset(path)
             else:
                 self._engine.delete_resources(path)
-            if path.endswith('.py'):
+            if self._is_script_source(path):
                 rm = ResourcesManager.instance()
                 if rm is not None:
                     rm.notify_script_catalog_changed(path, "deleted")
@@ -114,11 +190,11 @@ class ResourceChangeHandler(FileSystemEventHandler):
                 from Infernux.core.assets import AssetManager
                 AssetManager.on_asset_moved(old_path, event.src_path)
                 # For moved scripts, queue reload
-                if event.src_path.endswith('.py'):
+                if self._is_script_source(event.src_path):
                     self._queue_script_reload(event.src_path)
                 return
-            # Check Python scripts on creation
-            if event.src_path.endswith('.py'):
+            # Check script sources on creation
+            if self._is_script_source(event.src_path):
                 self._queue_script_reload(event.src_path)
 
     def on_deleted(self, event):
@@ -159,8 +235,8 @@ class ResourceChangeHandler(FileSystemEventHandler):
                 self._asset_database.on_asset_modified(event.src_path)
             else:
                 self._engine.modify_resources(event.src_path)
-            # Check Python scripts on modification
-            if event.src_path.endswith('.py'):
+            # Check script sources on modification
+            if self._is_script_source(event.src_path):
                 self._queue_script_reload(event.src_path)
             # Queue shader hot-reload
             elif event.src_path.endswith('.vert') or event.src_path.endswith('.frag'):
@@ -183,8 +259,8 @@ class ResourceChangeHandler(FileSystemEventHandler):
             # Now notify AssetManager/AssetRegistry (GUID→path map is up-to-date)
             from Infernux.core.assets import AssetManager
             AssetManager.on_asset_moved(event.src_path, event.dest_path)
-            # Check Python scripts after move
-            if event.dest_path.endswith('.py'):
+            # Check script sources after move
+            if self._is_script_source(event.dest_path):
                 self._queue_script_reload(event.dest_path)
                 rm = ResourcesManager.instance()
                 if rm is not None:
@@ -221,27 +297,21 @@ class ResourceChangeHandler(FileSystemEventHandler):
                 Debug.log_error(f"Reload failed for {item}: {exc}")
     
     def _check_script(self, file_path: str):
-        """Check a Python script for syntax errors and hot-reload components."""
+        """Validate a script source and hot-reload Python components when applicable."""
         # Verify file exists and is readable (ensures write is complete)
         if not os.path.exists(file_path):
             return
 
         errors = self._script_compiler.check_file(file_path)
         if errors:
-            from Infernux.components.script_loader import set_script_error
-            combined = "\n".join(
-                f"{os.path.basename(e.file_path)}:{e.line_number}  {e.message}"
-                for e in errors
-            )
-            set_script_error(file_path, combined)
+            self._apply_script_errors(file_path, errors)
             for error in errors:
                 Debug.log_error(
                     f"Script Error in {os.path.basename(error.file_path)}:{error.line_number}\n{error.message}",
                     source_file=error.file_path,
                     source_line=error.line_number)
         else:
-            from Infernux.components.script_loader import _clear_script_error
-            _clear_script_error(file_path)
+            self._clear_script_errors(file_path)
             Debug.log_internal(f"[OK] Script OK: {os.path.basename(file_path)}")
             rm = ResourcesManager.instance()
             if rm is not None:
@@ -252,11 +322,12 @@ class ResourceChangeHandler(FileSystemEventHandler):
             if rm is not None:
                 for cb in list(rm._script_reload_callbacks.get(abs_path, [])):
                     cb(file_path)
-            # Hot-reload InxComponents from this script
-            from Infernux.engine.play_mode import PlayModeManager
-            play_mode = PlayModeManager.instance()
-            if play_mode:
-                play_mode.reload_components_from_script(file_path)
+            # Hot-reload InxComponents only for Python-backed runtime scripts.
+            if self._is_python_script(file_path):
+                from Infernux.engine.play_mode import PlayModeManager
+                play_mode = PlayModeManager.instance()
+                if play_mode:
+                    play_mode.reload_components_from_script(file_path)
 
     def _reload_shader(self, file_path: str):
         """Reload a shader file and update the rendering pipeline."""
@@ -366,8 +437,8 @@ class ResourcesManager:
             self._observer.schedule(self._event_handler, self._assets_path, recursive=True)
             self._observer.start()
 
-            # Initial full scan: check every .py file in Assets/ so that
-            # pre-existing script errors are detected on engine startup.
+            # Initial full scan: validate every script source in Assets/ so
+            # pre-existing errors are detected on engine startup.
             self._initial_script_scan()
 
             while not self._stop_event.is_set():
@@ -376,31 +447,36 @@ class ResourcesManager:
             self._shutdown_observer(join_timeout=5.0)
 
     def _initial_script_scan(self):
-        """Walk Assets/ and syntax-check every .py file.
+        """Walk Assets/ and validate every ``.cs`` script file.
 
         Called once from the watchdog thread right after the observer
         starts so that errors present *before* the engine was opened
         are detected immediately.
         """
         from Infernux.engine.script_compiler import get_script_compiler
-        from Infernux.components.script_loader import set_script_error, _clear_script_error
 
         compiler = get_script_compiler()
         error_count = 0
+        scanned_csharp_projects = set()
         for root, dirs, files in os.walk(self._assets_path):
-            dirs[:] = [d for d in dirs if d != '__pycache__']
+            dirs[:] = [d for d in dirs if d not in ('__pycache__', '.vs', 'bin', 'obj')]
             for fname in files:
-                if not fname.endswith('.py'):
-                    continue
                 fpath = os.path.join(root, fname)
+                if self._event_handler and self._event_handler._should_ignore(fpath):
+                    continue
+                if not fname.endswith('.cs'):
+                    continue
+
+                project_key = self._event_handler._get_csharp_project_key(fpath) if self._event_handler else fpath
+                if project_key in scanned_csharp_projects:
+                    continue
+                scanned_csharp_projects.add(project_key)
+
                 errors = compiler.check_file(fpath)
-                if errors:
-                    combined = "\n".join(
-                        f"{os.path.basename(e.file_path)}:{e.line_number}  {e.message}"
-                        for e in errors
-                    )
-                    set_script_error(fpath, combined)
-                    error_count += 1
+                if errors and self._event_handler is not None:
+                    grouped = self._event_handler._group_script_errors(fpath, errors)
+                    self._event_handler._apply_script_errors(fpath, errors)
+                    error_count += max(len(grouped), 1)
                     for e in errors:
                         Debug.log_error(
                             f"Script Error in {os.path.basename(e.file_path)}:{e.line_number}\n{e.message}",
@@ -436,7 +512,7 @@ class ResourcesManager:
                 cbs.remove(callback)
 
     def register_script_catalog_callback(self, callback) -> None:
-        """Subscribe to global Python script catalog changes.
+        """Subscribe to global script-source catalog changes.
 
         Callback signature: ``callback(file_path, event_type)`` where
         ``event_type`` is one of ``modified``, ``deleted``, ``moved``.
@@ -445,12 +521,12 @@ class ResourcesManager:
             self._script_catalog_callbacks.append(callback)
 
     def unregister_script_catalog_callback(self, callback) -> None:
-        """Unsubscribe from global Python script catalog changes."""
+        """Unsubscribe from global script-source catalog changes."""
         if callback in self._script_catalog_callbacks:
             self._script_catalog_callbacks.remove(callback)
 
     def notify_script_catalog_changed(self, file_path: str, event_type: str) -> None:
-        """Notify listeners that Python script catalog may have changed."""
+        """Notify listeners that the script catalog may have changed."""
         for cb in list(self._script_catalog_callbacks):
             try:
                 cb(file_path, event_type)

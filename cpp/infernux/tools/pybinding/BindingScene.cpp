@@ -17,6 +17,7 @@
 #include "function/scene/ComponentFactory.h"
 #include "function/scene/GameObject.h"
 #include "function/scene/Light.h"
+#include "function/scene/ManagedComponentProxy.h"
 #include "function/scene/MeshCollider.h"
 #include "function/scene/MeshRenderer.h"
 #include "function/scene/PrimitiveMeshes.h"
@@ -55,6 +56,46 @@ static std::string ResolveComponentTypeName(py::object componentType)
         return py::str(componentType.attr("__name__")).cast<std::string>();
     }
     return {};
+}
+
+static py::object CastSceneComponentToPython(Component *comp)
+{
+    if (!comp) {
+        return py::none();
+    }
+    if (auto *proxy = dynamic_cast<PyComponentProxy *>(comp)) {
+        py::object pyComponent = proxy->GetPyComponent();
+        return pyComponent.is_none() ? py::none() : pyComponent;
+    }
+    if (auto *managedProxy = dynamic_cast<ManagedComponentProxy *>(comp)) {
+        return py::cast(managedProxy, py::return_value_policy::reference);
+    }
+    return ComponentBindingRegistry::Instance().CastToPython(comp);
+}
+
+static py::object FindStringMatchedComponent(GameObject *go, const std::string &typeName)
+{
+    if (!go) {
+        return py::none();
+    }
+    if (typeName == "Transform") {
+        return py::cast(go->GetTransform(), py::return_value_policy::reference);
+    }
+    for (const auto &comp : go->GetAllComponents()) {
+        if (auto *proxy = dynamic_cast<PyComponentProxy *>(comp.get())) {
+            if (proxy->GetPyTypeName() == typeName) {
+                py::object pyComponent = proxy->GetPyComponent();
+                if (!pyComponent.is_none()) {
+                    return pyComponent;
+                }
+            }
+            continue;
+        }
+        if (comp->GetTypeName() == typeName) {
+            return CastSceneComponentToPython(comp.get());
+        }
+    }
+    return py::none();
 }
 
 /**
@@ -218,6 +259,11 @@ void RegisterSceneBindings(py::module_ &m)
                                "List of type names this component depends on (RequireComponent)")
         .def("is_component_type", &Component::IsComponentType, py::arg("type_name"),
              "Check if this component matches a given type name (including base types)");
+
+    py::class_<ManagedComponentProxy, Component>(m, "ManagedComponentProxy")
+        .def_property_readonly("managed_type_name", &ManagedComponentProxy::GetManagedTypeName)
+        .def_property_readonly("script_guid", &ManagedComponentProxy::GetScriptGuid)
+        .def("is_valid", &ManagedComponentProxy::IsValid, "Check whether the native managed handle exists");
 
     // ========================================================================
     // Transform binding — aligned with Unity convention:
@@ -825,11 +871,10 @@ void RegisterSceneBindings(py::module_ &m)
             "get_components",
             [](GameObject *obj) -> py::list {
                 py::list result;
-                auto &reg = ComponentBindingRegistry::Instance();
                 // Include Transform first (it's not in m_components)
                 result.append(py::cast(obj->GetTransform(), py::return_value_policy::reference));
                 for (const auto &comp : obj->GetAllComponents()) {
-                    py::object pythonComponent = reg.CastToPython(comp.get());
+                    py::object pythonComponent = CastSceneComponentToPython(comp.get());
                     if (!pythonComponent.is_none()) {
                         result.append(pythonComponent);
                     }
@@ -840,31 +885,12 @@ void RegisterSceneBindings(py::module_ &m)
         .def(
             "get_component",
             [](GameObject *obj, const std::string &typeName) -> py::object {
-                auto &reg = ComponentBindingRegistry::Instance();
-                if (typeName == "Transform") {
-                    return py::cast(obj->GetTransform(), py::return_value_policy::reference);
-                }
-                for (const auto &comp : obj->GetAllComponents()) {
-                    if (auto *proxy = dynamic_cast<PyComponentProxy *>(comp.get())) {
-                        if (proxy->GetPyTypeName() == typeName) {
-                            py::object pyComponent = proxy->GetPyComponent();
-                            if (!pyComponent.is_none()) {
-                                return pyComponent;
-                            }
-                        }
-                        continue;
-                    }
-                    if (comp->GetTypeName() == typeName) {
-                        return reg.CastToPython(comp.get());
-                    }
-                }
-                return py::none();
+                return FindStringMatchedComponent(obj, typeName);
             },
             py::arg("type_name"), "Get a component by type name (e.g., 'Transform', 'MeshRenderer', 'Light')")
         .def(
             "get_cpp_component",
             [](GameObject *obj, const std::string &typeName) -> py::object {
-                auto &reg = ComponentBindingRegistry::Instance();
                 // Special case for Transform
                 if (typeName == "Transform") {
                     return py::cast(obj->GetTransform(), py::return_value_policy::reference);
@@ -875,7 +901,7 @@ void RegisterSceneBindings(py::module_ &m)
                         continue;
                     }
                     if (comp->GetTypeName() == typeName) {
-                        return reg.CastToPython(comp.get());
+                        return CastSceneComponentToPython(comp.get());
                     }
                 }
                 return py::none();
@@ -885,7 +911,6 @@ void RegisterSceneBindings(py::module_ &m)
             "get_cpp_components",
             [](GameObject *obj, const std::string &typeName) -> py::list {
                 py::list result;
-                auto &reg = ComponentBindingRegistry::Instance();
                 // Special case for Transform
                 if (typeName == "Transform") {
                     result.append(py::cast(obj->GetTransform(), py::return_value_policy::reference));
@@ -897,12 +922,25 @@ void RegisterSceneBindings(py::module_ &m)
                         continue;
                     }
                     if (comp->GetTypeName() == typeName) {
-                        result.append(reg.CastToPython(comp.get()));
+                        result.append(CastSceneComponentToPython(comp.get()));
                     }
                 }
                 return result;
             },
             py::arg("type_name"), "Get all C++ components of a given type name")
+        .def(
+            "add_managed_component",
+            [](GameObject *obj, const std::string &typeName, const std::string &scriptGuid, bool enabled) -> py::object {
+                if (!obj || typeName.empty()) {
+                    return py::none();
+                }
+                auto component = std::make_unique<ManagedComponentProxy>(typeName, scriptGuid);
+                component->SetEnabled(enabled);
+                Component *created = obj->AddExistingComponent(std::move(component));
+                return CastSceneComponentToPython(created);
+            },
+            py::arg("type_name"), py::arg("script_guid") = std::string(), py::arg("enabled") = true,
+            "Add a native managed C# component proxy")
         .def(
             "add_py_component",
             [](GameObject *obj, py::object pyComponentInstance) -> py::object {
@@ -1144,9 +1182,9 @@ void RegisterSceneBindings(py::module_ &m)
                     return py::none();
 
                 std::string typeName = ResolveComponentTypeName(componentType);
+                const bool isStringLookup = py::isinstance<py::str>(componentType);
 
                 bool isCpp = (typeName == "Transform" || ComponentFactory::IsRegistered(typeName));
-                auto &reg = ComponentBindingRegistry::Instance();
 
                 std::function<py::object(GameObject *)> search = [&](GameObject *go) -> py::object {
                     if (!go)
@@ -1155,13 +1193,18 @@ void RegisterSceneBindings(py::module_ &m)
                     if (!includeInactive && !go->IsActiveInHierarchy())
                         return py::none();
 
-                    if (isCpp) {
+                    if (isStringLookup) {
+                        py::object matched = FindStringMatchedComponent(go, typeName);
+                        if (!matched.is_none()) {
+                            return matched;
+                        }
+                    } else if (isCpp) {
                         if (typeName == "Transform") {
                             return py::cast(go->GetTransform(), py::return_value_policy::reference);
                         }
                         for (const auto &comp : go->GetAllComponents()) {
                             if (!dynamic_cast<PyComponentProxy *>(comp.get()) && comp->GetTypeName() == typeName) {
-                                return reg.CastToPython(comp.get());
+                                return CastSceneComponentToPython(comp.get());
                             }
                         }
                     } else {
@@ -1200,9 +1243,9 @@ void RegisterSceneBindings(py::module_ &m)
                     return py::none();
 
                 std::string typeName = ResolveComponentTypeName(componentType);
+                const bool isStringLookup = py::isinstance<py::str>(componentType);
 
                 bool isCpp = (typeName == "Transform" || ComponentFactory::IsRegistered(typeName));
-                auto &reg = ComponentBindingRegistry::Instance();
 
                 GameObject *current = obj;
                 while (current) {
@@ -1211,13 +1254,18 @@ void RegisterSceneBindings(py::module_ &m)
                         current = current->GetParent();
                         continue;
                     }
-                    if (isCpp) {
+                    if (isStringLookup) {
+                        py::object matched = FindStringMatchedComponent(current, typeName);
+                        if (!matched.is_none()) {
+                            return matched;
+                        }
+                    } else if (isCpp) {
                         if (typeName == "Transform") {
                             return py::cast(current->GetTransform(), py::return_value_policy::reference);
                         }
                         for (const auto &comp : current->GetAllComponents()) {
                             if (!dynamic_cast<PyComponentProxy *>(comp.get()) && comp->GetTypeName() == typeName) {
-                                return reg.CastToPython(comp.get());
+                                return CastSceneComponentToPython(comp.get());
                             }
                         }
                     } else {
@@ -1297,6 +1345,7 @@ void RegisterSceneBindings(py::module_ &m)
         .def_readonly("game_object_id", &Scene::PendingPyComponent::gameObjectId)
         .def_readonly("type_name", &Scene::PendingPyComponent::typeName)
         .def_readonly("script_guid", &Scene::PendingPyComponent::scriptGuid)
+        .def_readonly("script_language", &Scene::PendingPyComponent::scriptLanguage)
         .def_readonly("fields_json", &Scene::PendingPyComponent::fieldsJson)
         .def_readonly("enabled", &Scene::PendingPyComponent::enabled);
 

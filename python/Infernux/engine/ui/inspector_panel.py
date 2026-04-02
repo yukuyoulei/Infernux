@@ -1303,12 +1303,12 @@ class InspectorPanel(EditorPanel):
     def _open_add_component_popup(self, ctx: InxGUIContext):
         """Open the Add Component popup and refresh script list."""
         self.__add_component_search = ""
-        self.__add_component_scripts = self._scan_project_scripts()
+        self.__add_component_scripts = self._scan_project_csharp_scripts()
         self.__add_component_native_types = self._get_native_component_types()
-        # Pre-cache menu paths once (avoids exec_module per frame)
-        self.__script_menu_paths: dict[str, str | None] = {}
-        for _, path in self.__add_component_scripts:
-            self.__script_menu_paths[path] = self._get_script_menu_path(path)
+        # Pre-cache menu paths once.
+        self.__script_menu_paths: dict[tuple[str, str], str | None] = {}
+        for display_name, path in self.__add_component_scripts:
+            self.__script_menu_paths[(path, display_name)] = self._get_csharp_script_menu_path(path, display_name)
         ctx.open_popup("##add_component_popup")
 
     def _get_native_component_types(self):
@@ -1318,64 +1318,64 @@ class InspectorPanel(EditorPanel):
         # Filter out Transform (always present)
         return [t for t in sorted(types) if t != "Transform"]
 
-    def _scan_project_scripts(self):
-        """Scan project root for .py files that define exactly one attachable InxComponent."""
+    def _scan_project_csharp_scripts(self):
+        """Scan the compiled Assets tree for attachable C# InxComponent types."""
         results = []
         from Infernux.engine.project_context import get_project_root
-        from Infernux.components.script_loader import load_component_from_file, ScriptLoadError
+        from Infernux.components.script_loader import load_all_components_from_file, ScriptLoadError
+
         project_root = get_project_root()
         if not project_root or not os.path.isdir(project_root):
             return results
 
-        for dirpath, _dirnames, filenames in os.walk(project_root):
-            # Skip hidden dirs, __pycache__, build outputs, etc.
-            rel = os.path.relpath(dirpath, project_root)
-            if any(part.startswith('.') or part in ('__pycache__', 'build', 'Library', 'ProjectSettings', 'Logs', 'Temp')
+        scripts_root = os.path.join(project_root, "Assets")
+        if not os.path.isdir(scripts_root):
+            return results
+
+        for dirpath, _dirnames, filenames in os.walk(scripts_root):
+            rel = os.path.relpath(dirpath, scripts_root)
+            if any(part.startswith('.') or part in ('__pycache__', 'build', 'bin', 'obj', '.vs',
+                                                    'Library', 'ProjectSettings', 'Logs', 'Temp')
                    for part in rel.split(os.sep)):
                 continue
             for fn in filenames:
-                if not fn.endswith('.py') or fn.startswith('_'):
+                if not fn.endswith('.cs') or fn.startswith('_'):
                     continue
                 full = os.path.join(dirpath, fn)
-                # Quick check: file must reference InxComponent
                 with open(full, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read(4096)
-                if 'InxComponent' in content:
-                    try:
-                        component_class = load_component_from_file(full)
-                    except ScriptLoadError:
-                        continue
-                    display = component_class.__name__
-                    results.append((display, full))
+                if 'InxComponent' not in content:
+                    continue
+                try:
+                    component_classes = load_all_components_from_file(full)
+                except ScriptLoadError:
+                    continue
+                for component_class in component_classes:
+                    results.append((component_class.__name__, full))
+
         results.sort(key=lambda x: x[0].lower())
         return results
 
-    def _get_script_menu_path(self, script_path: str) -> str | None:
-        """Return the ``@add_component_menu`` path for a script, or None.
-
-        Loads the script module to inspect the class attribute.  Results are
-        cached implicitly because ``_scan_project_scripts`` only runs on popup
-        open.
-        """
-        import importlib.util
-        from Infernux.engine.project_context import temporary_script_import_paths
-        spec = importlib.util.spec_from_file_location("_tmp_scan", script_path)
-        if not spec or not spec.loader:
+    def _get_csharp_script_menu_path(self, script_path: str, type_name: str = "") -> str | None:
+        """Return the ``AddComponentMenu`` path for a C# component, or None."""
+        if not type_name:
             return None
         try:
-            mod = importlib.util.module_from_spec(spec)
-            with temporary_script_import_paths(script_path):
-                spec.loader.exec_module(mod)
+            with open(script_path, 'r', encoding='utf-8', errors='ignore') as f:
+                source = f.read()
         except Exception:
-            # Script has syntax errors or import failures — skip gracefully.
             return None
-        from Infernux.components.component import InxComponent
-        for attr in dir(mod):
-            obj = getattr(mod, attr, None)
-            if (isinstance(obj, type) and issubclass(obj, InxComponent)
-                    and obj is not InxComponent):
-                return getattr(obj, '_component_menu_path_', None)
-        return None
+
+        import re
+
+        match = re.search(
+            r"\[\s*AddComponentMenu\s*\(\s*\"([^\"]+)\"\s*\)\s*\]"
+            r"[\s\r\n]*(?:(?:public|internal|protected|private|abstract|sealed|static|partial)\s+)*"
+            rf"class\s+{re.escape(type_name)}\b",
+            source,
+            re.MULTILINE,
+        )
+        return match.group(1).strip() if match else None
 
     def _render_add_component_popup(self, ctx: InxGUIContext):
         """Render the searchable Add Component popup content."""
@@ -1476,13 +1476,13 @@ class InspectorPanel(EditorPanel):
             categorized: dict[str, list] = {}   # category -> [(display, path)]
             uncategorized: list = []
             for display_name, script_path in script_matched:
-                menu_path = self.__script_menu_paths.get(script_path)
+                menu_path = self.__script_menu_paths.get((script_path, display_name))
                 if menu_path:
                     # Use the first path segment as the category header
                     parts = menu_path.split('/')
                     category = parts[0]
                     leaf_name = parts[-1] if len(parts) > 1 else display_name
-                    categorized.setdefault(category, []).append((leaf_name, script_path))
+                    categorized.setdefault(category, []).append((leaf_name, display_name, script_path))
                 else:
                     uncategorized.append((display_name, script_path))
 
@@ -1490,11 +1490,11 @@ class InspectorPanel(EditorPanel):
             for cat in sorted(categorized.keys()):
                 ctx.label(cat)
                 ctx.separator()
-                for leaf_name, spath in categorized[cat]:
+                for leaf_name, display_name, spath in categorized[cat]:
                     found_any = True
                     uid += 1
                     if ctx.selectable(f"  {leaf_name}##s{uid}"):
-                        self._handle_script_drop(spath)
+                        self._handle_script_drop(spath, type_name=display_name)
                         ctx.close_current_popup()
                 ctx.dummy(0, 4)
 
@@ -1506,7 +1506,7 @@ class InspectorPanel(EditorPanel):
                     found_any = True
                     uid += 1
                     if ctx.selectable(f"  {display_name}##s{uid}"):
-                        self._handle_script_drop(spath)
+                        self._handle_script_drop(spath, type_name=display_name)
                         ctx.close_current_popup()
         
         if not found_any:
@@ -1581,7 +1581,7 @@ class InspectorPanel(EditorPanel):
             selected_object, comp_cls.__name__, instance, before_ids, is_py=True)
         self._invalidate_component_structure_cache()
 
-    def _handle_script_drop(self, script_path: str):
+    def _handle_script_drop(self, script_path: str, type_name: str = ""):
         """Handle script file drop - load and attach component."""
         selected_object = self._get_selected_object()
         if not selected_object:
@@ -1592,7 +1592,11 @@ class InspectorPanel(EditorPanel):
 
         # Load component from script file
         try:
-            component_instance = load_and_create_component(script_path, asset_database=self.__asset_database)
+            component_instance = load_and_create_component(
+                script_path,
+                asset_database=self.__asset_database,
+                type_name=type_name,
+            )
         except Exception as exc:
             Debug.log_error(f"Failed to load script '{script_path}': {exc}")
             return
@@ -1738,7 +1742,10 @@ class InspectorPanel(EditorPanel):
                     if script_path:
                         from Infernux.components import load_and_create_component
                         instance = load_and_create_component(
-                            script_path, asset_database=self.__asset_database)
+                            script_path,
+                            asset_database=self.__asset_database,
+                            type_name=type_name,
+                        )
                         if instance:
                             instance._script_guid = guid
                 if instance is None:

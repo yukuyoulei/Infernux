@@ -151,7 +151,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     # ── Project panel ─────────────────────────────────────────────────
     "project.create_menu":              {"en": "Create",                    "zh": "创建"},
     "project.create_folder":            {"en": "Folder",                    "zh": "文件夹"},
-    "project.create_script":            {"en": "Script (.py)",              "zh": "脚本 (.py)"},
+    "project.create_script":            {"en": "Script (.cs)",              "zh": "脚本 (.cs)"},
     "project.create_vert_shader":       {"en": "Vertex Shader (.vert)",     "zh": "顶点着色器 (.vert)"},
     "project.create_frag_shader":       {"en": "Fragment Shader (.frag)",   "zh": "片段着色器 (.frag)"},
     "project.create_material":          {"en": "Material (.mat)",           "zh": "材质 (.mat)"},

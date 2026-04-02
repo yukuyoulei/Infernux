@@ -150,10 +150,10 @@ def temporary_script_import_paths(path: Optional[str]) -> Iterator[None]:
 def resolve_script_path(path: Optional[str]) -> Optional[str]:
     """Resolve a possibly relative script path to an absolute path.
 
-    In packaged builds the original ``.py`` sources are compiled to
-    ``.pyc`` and removed.  If the resolved ``.py`` path does not exist
-    but a corresponding ``.pyc`` does, the ``.pyc`` path is returned
-    so that callers transparently load the compiled version.
+    Legacy packaged builds may still replace ``.py`` sources with
+    ``.pyc`` files. If the resolved ``.py`` path does not exist but a
+    corresponding ``.pyc`` does, the ``.pyc`` path is returned for
+    backward compatibility.
     """
     if not path:
         return path
@@ -173,14 +173,7 @@ def resolve_script_path(path: Optional[str]) -> Optional[str]:
 
 
 def resolve_guid_to_path(guid: str) -> Optional[str]:
-    """Resolve a script GUID using the build-time manifest.
-
-    In packaged builds the original ``.py`` sources are compiled to
-    ``.pyc`` and removed.  The C++ ``AssetDatabase`` cannot register
-    ``.pyc`` files, so GUID look-ups return empty.  At build time a
-    ``_script_guid_map.json`` manifest is written that maps GUIDs to
-    relative ``.pyc`` paths.  This function loads and queries it.
-    """
+    """Resolve a script GUID using the legacy build-time manifest."""
     global _guid_manifest, _guid_manifest_loaded
     if not _guid_manifest_loaded:
         _guid_manifest_loaded = True

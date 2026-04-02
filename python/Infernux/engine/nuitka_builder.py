@@ -274,8 +274,7 @@ class NuitkaBuilder:
                 "Failed to prepare the builder Python environment.  "
                 f"Builder Python: {self._builder_python}\n"
                 "Please run manually:\n"
-                "    pip install nuitka ordered-set\n"
-                "and install the project's requirements.txt if needed."
+                "    pip install nuitka ordered-set"
             ) from exc
 
     # ------------------------------------------------------------------

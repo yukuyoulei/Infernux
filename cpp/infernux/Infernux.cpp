@@ -23,7 +23,7 @@
 #include <function/resources/AssetDependencyGraph.h>
 #include <function/resources/AssetRegistry/AssetRegistry.h>
 #include <function/resources/InxFileLoader/InxDefaultLoader.hpp>
-#include <function/resources/InxFileLoader/InxPythonScriptLoader.hpp>
+#include <function/resources/InxFileLoader/InxScriptSourceLoader.hpp>
 #include <function/resources/InxFileLoader/InxShaderLoader.hpp>
 #include <function/resources/InxMaterial/MaterialLoader.h>
 #include <function/resources/InxMesh/MeshLoader.h>
@@ -32,6 +32,7 @@
 #include <function/resources/ShaderAsset/ShaderAsset.h>
 #include <function/resources/ShaderAsset/ShaderLoader.h>
 #include <function/scene/Component.h>
+#include <function/scene/ManagedRuntimeHost.h>
 #include <function/scene/MeshRenderer.h>
 #include <function/scene/SceneRenderer.h>
 #include <function/scene/physics/PhysicsWorld.h>
@@ -172,6 +173,7 @@ void Infernux::Cleanup()
     SaveImGuiLayout();
     AudioEngine::Instance().Shutdown();
     PhysicsWorld::Instance().Shutdown();
+    ManagedRuntimeHost::Instance().Shutdown();
 
     m_renderer.reset();
 
@@ -203,6 +205,7 @@ void Infernux::InitRenderer(int width, int height, const std::string &projectPat
     }
 
     m_renderer->Init(width, height, m_metadata);
+    ManagedRuntimeHost::Instance().ConfigureProject(projectPath);
 
     // Redirect log output to Logs/engine.log.
     // Debug / RelWithDebInfo: truncate on startup and write through.
@@ -239,7 +242,7 @@ void Infernux::InitRenderer(int width, int height, const std::string &projectPat
         registry.RegisterLoader(ResourceType::Mesh, std::make_unique<MeshLoader>());
         registry.RegisterLoader(ResourceType::Audio, std::make_unique<AudioClipLoader>());
         registry.RegisterLoader(ResourceType::Shader, std::make_unique<ShaderLoader>());
-        registry.RegisterLoader(ResourceType::Script, std::make_unique<InxPythonScriptLoader>());
+        registry.RegisterLoader(ResourceType::Script, std::make_unique<InxScriptSourceLoader>());
         registry.RegisterLoader(ResourceType::DefaultText, std::make_unique<InxDefaultTextLoader>());
         registry.RegisterLoader(ResourceType::DefaultBinary, std::make_unique<InxDefaultBinaryLoader>());
 

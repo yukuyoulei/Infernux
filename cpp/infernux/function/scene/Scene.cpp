@@ -645,11 +645,25 @@ GameObject *Scene::InstantiateFromJson(const std::string &jsonStr, GameObject *p
                 pending.gameObjectId = objId;
                 pending.typeName = pyCompJson.value("py_type_name", std::string("PyComponent"));
                 pending.scriptGuid = pyCompJson.value("script_guid", std::string());
+                pending.scriptLanguage = pyCompJson.value("script_language", std::string("python"));
                 pending.enabled = pyCompJson.value("enabled", true);
                 if (pyCompJson.contains("py_fields")) {
                     pending.fieldsJson = pyCompJson["py_fields"].dump();
                 }
                 m_pendingPyComponents.push_back(pending);
+            }
+        }
+
+        if (objJson.contains("managed_components") && objJson["managed_components"].is_array()) {
+            uint64_t objId = obj->GetID();
+            for (const auto &managedCompJson : objJson["managed_components"]) {
+                PendingPyComponent pending;
+                pending.gameObjectId = objId;
+                pending.typeName = managedCompJson.value("managed_type_name", managedCompJson.value("type_name", std::string()));
+                pending.scriptGuid = managedCompJson.value("script_guid", std::string());
+                pending.scriptLanguage = "csharp";
+                pending.enabled = managedCompJson.value("enabled", true);
+                m_pendingPyComponents.push_back(std::move(pending));
             }
         }
 
@@ -823,11 +837,26 @@ bool Scene::Deserialize(const std::string &jsonStr)
                     pending.gameObjectId = objId;
                     pending.typeName = pyCompJson.value("py_type_name", std::string("PyComponent"));
                     pending.scriptGuid = pyCompJson.value("script_guid", std::string());
+                    pending.scriptLanguage = pyCompJson.value("script_language", std::string("python"));
                     pending.enabled = pyCompJson.value("enabled", true);
                     if (pyCompJson.contains("py_fields")) {
                         pending.fieldsJson = pyCompJson["py_fields"].dump();
                     }
                     m_pendingPyComponents.push_back(pending);
+                }
+            }
+
+            if (objJson.contains("managed_components") && objJson["managed_components"].is_array()) {
+                uint64_t objId = obj->m_id;
+                for (const auto &managedCompJson : objJson["managed_components"]) {
+                    PendingPyComponent pending;
+                    pending.gameObjectId = objId;
+                    pending.typeName =
+                        managedCompJson.value("managed_type_name", managedCompJson.value("type_name", std::string()));
+                    pending.scriptGuid = managedCompJson.value("script_guid", std::string());
+                    pending.scriptLanguage = "csharp";
+                    pending.enabled = managedCompJson.value("enabled", true);
+                    m_pendingPyComponents.push_back(std::move(pending));
                 }
             }
 

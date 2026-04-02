@@ -24,8 +24,8 @@ def resolve_script_from_guid(
 
     Handles:
     - Normal editor look-up via AssetDatabase
-    - Packaged-build ``.py → .pyc`` fallback
-    - Build-time GUID manifest fallback
+    - Legacy packaged-build ``.py → .pyc`` fallback
+    - Legacy build-time GUID manifest fallback
     """
     script_path = None
 
@@ -55,12 +55,19 @@ def create_component_instance(
 
     instance = None
     if script_path and os.path.exists(script_path):
-        from Infernux.components.script_loader import load_and_create_component
-        instance = load_and_create_component(
-            script_path, asset_database=asset_database, type_name=type_name,
-        )
-        if instance is not None and script_guid:
-            instance._script_guid = script_guid
+        try:
+            from Infernux.components.script_loader import load_and_create_component
+
+            instance = load_and_create_component(
+                script_path, asset_database=asset_database, type_name=type_name,
+            )
+            if instance is not None and script_guid:
+                instance._script_guid = script_guid
+        except Exception as exc:
+            Debug.log_warning(
+                f"Failed to recreate component '{type_name}' from "
+                f"'{script_path}': {exc}"
+            )
     elif not script_path or not os.path.exists(script_path if script_path else ""):
         # No path available — try the global type registry
         from Infernux.components.registry import get_type
@@ -101,6 +108,50 @@ def _make_broken_component(pc, script_path: Optional[str]):
     return broken
 
 
+def _get_script_language(pc) -> str:
+    language = getattr(pc, "script_language", "") or "python"
+    return str(language).strip().lower() or "python"
+
+
+def _is_scene_playing(scene) -> bool:
+    try:
+        return bool(scene.is_playing())
+    except Exception:
+        return False
+
+
+def _restore_managed_component(scene, pc):
+    go = scene.find_by_id(pc.game_object_id)
+    if not go:
+        Debug.log_warning(
+            f"Cannot restore managed component '{pc.type_name}': "
+            f"GameObject {pc.game_object_id} not found"
+        )
+        return None
+
+    try:
+        component = go.add_managed_component(
+            pc.type_name,
+            getattr(pc, "script_guid", "") or "",
+            bool(pc.enabled),
+        )
+    except Exception as exc:
+        Debug.log_error(
+            f"Failed to create managed component '{pc.type_name}' on "
+            f"'{go.name}': {exc}"
+        )
+        return None
+
+    if component is None:
+        Debug.log_error(
+            f"Managed runtime rejected component '{pc.type_name}' on "
+            f"'{go.name}'."
+        )
+        return None
+
+    return component
+
+
 def restore_single_component(scene, pc, asset_database=None):
     """Restore one ``PendingPyComponent`` into a live component.
 
@@ -120,6 +171,9 @@ def restore_single_component(scene, pc, asset_database=None):
             f"GameObject {pc.game_object_id} not found"
         )
         return None
+
+    if _is_scene_playing(scene) and _get_script_language(pc) == "csharp":
+        return _restore_managed_component(scene, pc)
 
     instance, script_path = create_component_instance(
         getattr(pc, "script_guid", "") or "",
@@ -200,9 +254,16 @@ def restore_pending_py_components(
 
     restored = 0
     deferred_callbacks: List[Any] = []
+    scene_is_playing = _is_scene_playing(scene)
 
     for pc in pending:
         try:
+            if scene_is_playing and _get_script_language(pc) == "csharp":
+                comp = _restore_managed_component(scene, pc)
+                if comp is not None:
+                    restored += 1
+                continue
+
             if batch_on_after_deserialize:
                 # Create instance but defer on_after_deserialize
                 go = scene.find_by_id(pc.game_object_id)
@@ -271,5 +332,5 @@ def restore_pending_py_components(
             )
 
     Debug.log_internal(
-        f"Restored {restored}/{len(pending)} Python component(s)"
+        f"Restored {restored}/{len(pending)} pending script component(s)"
     )

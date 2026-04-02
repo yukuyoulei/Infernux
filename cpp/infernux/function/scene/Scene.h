@@ -254,6 +254,7 @@ class Scene
         uint64_t gameObjectId = 0; // Which GameObject this belongs to
         std::string typeName;      // Python class name
         std::string scriptGuid;    // GUID for the script asset
+        std::string scriptLanguage; // python, csharp, ...
         std::string fieldsJson;    // Serialized field values as JSON
         bool enabled = true;
     };

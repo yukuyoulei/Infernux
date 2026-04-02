@@ -239,7 +239,7 @@ class ProjectPanel(EditorPanel):
     
     # Drag-drop: extension -> (payload_type, label_prefix)
     _DRAG_DROP_MAP = {
-        '.py':    ("SCRIPT_FILE",  "Script"),
+        '.cs':    ("SCRIPT_FILE",  "Script"),
         '.mat':   ("MATERIAL_FILE", "Material"),
         '.vert':  ("SHADER_FILE",  "Shader"),
         '.frag':  ("SHADER_FILE",  "Shader"),
@@ -1053,7 +1053,10 @@ class ProjectPanel(EditorPanel):
             key = self.ICON_MAP.get(ext)
         if key is None:
             key = 'file'  # generic fallback
-        return self.__type_icon_cache.get(key, 0)
+        tex_id = self.__type_icon_cache.get(key, 0)
+        if tex_id == 0 and ext == '.cs':
+            tex_id = self.__type_icon_cache.get('script_py', 0)
+        return tex_id
 
     def _get_model_sub_assets(self, file_path: str):
         """Return cached sub-asset info for a model file, or None.
@@ -1487,7 +1490,7 @@ class ProjectPanel(EditorPanel):
                     self._create_and_rename(self._create_folder, "NewFolder")
                 ctx.separator()
                 if ctx.selectable(t("project.create_script"), False, 0, 0, 0):
-                    self._create_and_rename(self._create_script, "NewComponent", ".py")
+                    self._create_and_rename(self._create_script, "NewComponent", ".cs")
                 ctx.separator()
                 if ctx.selectable(t("project.create_vert_shader"), False, 0, 0, 0):
                     self._create_and_rename(
@@ -1785,7 +1788,7 @@ class ProjectPanel(EditorPanel):
                                 if _dd is not None:
                                     payload_type = _dd[0]
                                     label_prefix = _dd[1]
-                                    if ext == '.py':
+                                    if ext == '.cs':
                                         try:
                                             from Infernux.components.script_loader import load_component_from_file, ScriptLoadError
                                             load_component_from_file(item_path)

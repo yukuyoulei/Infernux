@@ -262,6 +262,61 @@ class PlayModeManager:
         
         Debug.log_internal("▶ Entering Play Mode...")
 
+        csharp_script_components = []
+        unsupported_external_components = []
+        for comps in InxComponent._active_instances.values():
+            for comp in comps:
+                language = getattr(comp.__class__, "_external_script_language_", "")
+                if not language:
+                    continue
+                normalized = str(language).strip().lower()
+                if normalized == "csharp":
+                    csharp_script_components.append(comp)
+                else:
+                    unsupported_external_components.append((comp, normalized))
+        if unsupported_external_components:
+            for comp, language in unsupported_external_components:
+                owner = getattr(comp, "game_object", None)
+                owner_name = getattr(owner, "name", "<Missing GameObject>")
+                Debug.log_error(
+                    f"Play Mode blocked by {language} script component '{comp.type_name}' on '{owner_name}'. "
+                    "Runtime execution for external script components is not implemented yet.",
+                    context=owner if owner is not None else comp,
+                )
+            Debug.log_error(
+                f"Play Mode blocked: {len(unsupported_external_components)} external script component(s) are attached. "
+                "Only the native C# runtime path is currently wired up."
+            )
+            return False
+        if csharp_script_components:
+            runtime_available = False
+            runtime_error = ""
+            try:
+                from Infernux.lib import (
+                    get_managed_runtime_error,
+                    is_managed_runtime_available,
+                )
+                runtime_available = bool(is_managed_runtime_available())
+                runtime_error = get_managed_runtime_error() or ""
+            except Exception as exc:
+                runtime_error = str(exc)
+
+            if not runtime_available:
+                for comp in csharp_script_components:
+                    owner = getattr(comp, "game_object", None)
+                    owner_name = getattr(owner, "name", "<Missing GameObject>")
+                    suffix = f" ({runtime_error})" if runtime_error else ""
+                    Debug.log_error(
+                        f"Play Mode blocked by C# script component '{comp.type_name}' on '{owner_name}'. "
+                        f"Native CLR host is unavailable{suffix}",
+                        context=owner if owner is not None else comp,
+                    )
+                Debug.log_error(
+                    f"Play Mode blocked: {len(csharp_script_components)} C# component(s) are attached, "
+                    "but the native CLR host is not ready."
+                )
+                return False
+
         from Infernux.engine.deferred_task import DeferredTaskRunner
         runner = DeferredTaskRunner.instance()
         if runner.is_busy:

@@ -143,6 +143,10 @@ class PyComponentProxy : public Component
     /// @brief Set script GUID (used during deserialization)
     void SetScriptGuid(const std::string &guid);
 
+    /// @brief Get the originating script language for external placeholders.
+    /// Returns "python" for normal Python components.
+    [[nodiscard]] std::string GetScriptLanguage() const;
+
   private:
     void BindPythonMirror();
     void SyncPythonMirror() const;

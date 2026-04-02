@@ -143,7 +143,7 @@ class ScriptImporter final : public AssetImporter
 
     [[nodiscard]] std::vector<std::string> GetSupportedExtensions() const override
     {
-        return {".py"};
+        return {".py", ".cs"};
     }
 
     bool Import(const ImportContext &ctx) override

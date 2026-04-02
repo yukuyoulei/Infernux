@@ -13,20 +13,19 @@ import shutil
 # Templates
 # ---------------------------------------------------------------------------
 
-SCRIPT_TEMPLATE = '''
-from Infernux import *
+SCRIPT_TEMPLATE = """using Infernux;
 
+public sealed class {class_name} : InxComponent
+{{
+    public override void Start()
+    {{
+    }}
 
-class {class_name}(InxComponent):
-    # Public fields (automatically serialized and shown in Inspector)
-    # speed = 5.0       # float (use .0 for decimals)
-    
-    def start(self):
-        """Called before first update, after all awake() calls."""
-    
-    def update(self, delta_time: float):
-        """Called every frame."""
-'''
+    public override void Update(float deltaTime)
+    {{
+    }}
+}}
+"""
 
 VERTEX_SHADER_TEMPLATE = '''#version 450
 
@@ -222,7 +221,7 @@ def create_folder(current_path: str, folder_name: str):
 
 
 def create_script(current_path: str, script_name: str, asset_database=None):
-    """Create a Python script from template. Returns ``(True, "")`` or ``(False, error_msg)``."""
+    """Create a C# script from template. Returns ``(True, "")`` or ``(False, error_msg)``."""
     if not script_name or not current_path:
         return False, "Invalid script name"
 
@@ -231,14 +230,18 @@ def create_script(current_path: str, script_name: str, asset_database=None):
         return False, "Script name cannot be empty"
 
     class_name = script_name
-    if class_name.endswith('.py'):
+    if class_name.endswith('.cs'):
         class_name = class_name[:-3]
 
-    if not class_name.isidentifier():
-        return False, "Invalid script name (must be valid Python identifier)"
+    if not class_name:
+        return False, "Invalid script name"
+    if not (class_name[0].isalpha() or class_name[0] == '_'):
+        return False, "Invalid script name (must start with a letter or underscore)"
+    if not all(ch.isalnum() or ch == '_' for ch in class_name):
+        return False, "Invalid script name (letters, numbers, and underscores only)"
 
-    if not script_name.endswith('.py'):
-        script_name = script_name + '.py'
+    if not script_name.endswith('.cs'):
+        script_name = script_name + '.cs'
 
     file_path = os.path.join(current_path, script_name)
     if os.path.exists(file_path):

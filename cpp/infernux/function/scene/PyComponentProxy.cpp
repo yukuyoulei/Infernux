@@ -421,6 +421,10 @@ std::string PyComponentProxy::Serialize() const
     j["enabled"] = enabled;
     j["component_id"] = m_componentId;
     j["script_guid"] = m_scriptGuid;
+    const std::string scriptLanguage = GetScriptLanguage();
+    if (!scriptLanguage.empty()) {
+        j["script_language"] = scriptLanguage;
+    }
 
     // Serialize Python component's serializable fields
     if (!m_pyComponent.is_none()) {
@@ -478,6 +482,27 @@ void PyComponentProxy::SetScriptGuid(const std::string &guid)
             INXLOG_ERROR("[PyComponentProxy] Failed to set script guid: ", e.what());
         }
     }
+}
+
+std::string PyComponentProxy::GetScriptLanguage() const
+{
+    if (m_pyComponent.is_none()) {
+        return "python";
+    }
+
+    try {
+        py::object pyType = m_pyComponent.attr("__class__");
+        if (py::hasattr(pyType, "_external_script_language_")) {
+            py::object language = pyType.attr("_external_script_language_");
+            if (!language.is_none()) {
+                return language.cast<std::string>();
+            }
+        }
+    } catch (const py::error_already_set &e) {
+        INXLOG_WARN("[PyComponentProxy] Failed to read script language for '", m_typeName, "': ", e.what());
+    }
+
+    return "python";
 }
 
 std::unique_ptr<Component> PyComponentProxy::Clone() const

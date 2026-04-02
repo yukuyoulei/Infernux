@@ -9,7 +9,7 @@ import os
 # File extensions to hide
 HIDDEN_EXTENSIONS = {'.meta', '.pyc', '.pyo', '.tmp'}
 HIDDEN_PREFIXES = {'.', '__'}
-HIDDEN_FILES = {'imgui.ini'}
+HIDDEN_FILES = {'imgui.ini', 'bin', 'obj', '.vs'}
 
 
 def should_show(name: str) -> bool:
@@ -148,7 +148,7 @@ def open_file_with_system(file_path: str, project_root: str = ""):
     """
     Open *file_path* with the OS default application.
 
-    For ``.py``, ``.vert``, ``.frag``, ``.glsl``, ``.hlsl``, ``.json``,
+    For ``.cs``, ``.py``, ``.vert``, ``.frag``, ``.glsl``, ``.hlsl``, ``.json``,
     ``.txt``, and ``.md`` files, open in VS Code with the *project_root*
     as the workspace folder — so that the project's Python runtime
     interpreter and type stubs are automatically picked up by Pylance.

@@ -12,6 +12,7 @@
 #include <function/renderer/gui/InxGUIRenderable.h>
 #include <function/renderer/gui/InxResourcePreviewer.h>
 #include <function/renderer/gui/InxScreenUIRenderer.h>
+#include <function/scene/ManagedRuntimeHost.h>
 #include <function/scene/EditorCameraController.h>
 #include <glm/glm.hpp>
 #include <pybind11/numpy.h>
@@ -842,6 +843,12 @@ PYBIND11_MODULE(_Infernux, m)
     m.def(
         "inflog_warn", [](const std::string &msg) { INXLOG_WARN(msg); }, py::arg("msg"),
         "Write a WARN-level message to the engine log.");
+    m.def(
+        "is_managed_runtime_available", []() { return ManagedRuntimeHost::Instance().IsRuntimeAvailable(); },
+        "Check whether the native managed C# runtime host is available.");
+    m.def(
+        "get_managed_runtime_error", []() { return ManagedRuntimeHost::Instance().GetLastError(); },
+        "Get the last native managed runtime host error message.");
 
     // Register all binding modules
     RegisterGUIBindings(m);
