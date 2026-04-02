@@ -141,6 +141,7 @@ class ProjectPanel : public EditorPanel
     struct DirSnapshot
     {
         int64_t mtimeNs = 0;
+        double lastValidatedAt = 0.0; // steady-clock seconds
         std::vector<FileItem> dirs;
         std::vector<FileItem> files;
         std::vector<FileItem> items; // dirs + files
@@ -332,8 +333,6 @@ class ProjectPanel : public EditorPanel
     void RenderFolderTreeRecursive(InxGUIContext *ctx, const std::string &path, DirSnapshot *snapshot = nullptr);
     void RenderFileGrid(InxGUIContext *ctx);
     void RenderContextMenu(InxGUIContext *ctx);
-    void RenderGridItem(InxGUIContext *ctx, const FileItem &item, float iconSize,
-                        bool isSelected, float cellStartX);
     void RenderDragDropSource(InxGUIContext *ctx, const FileItem &item);
     void RenderFolderDropTarget(InxGUIContext *ctx, const std::string &folderPath);
     void RenderItemLabel(InxGUIContext *ctx, const FileItem &item, float iconSize, float cellStartX);
@@ -377,6 +376,9 @@ class ProjectPanel : public EditorPanel
     static constexpr int THUMBNAIL_MAX_PX = 128;
     static constexpr int THUMBS_PER_FRAME = 1;
     static constexpr double THUMB_RETRY_DELAY = 1.0;
+    static constexpr double DIR_CACHE_TTL = 0.5; // seconds before re-checking mtime
+
+    double m_frameTimeNow = 0.0; // steady_clock time cached once per frame
 
     struct GridRange
     {

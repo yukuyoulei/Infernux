@@ -403,17 +403,27 @@ ProjectPanel::DirSnapshot *ProjectPanel::GetDirSnapshot(const std::string &path)
     if (path.empty())
         return nullptr;
 
+    // Fast path: return cached snapshot if TTL hasn't expired (avoids syscalls)
+    auto it = m_dirCache.find(path);
+    if (it != m_dirCache.end())
+    {
+        if ((m_frameTimeNow - it->second.lastValidatedAt) < DIR_CACHE_TTL)
+            return &it->second;
+        int64_t mtimeNs = GetMtimeNs(path);
+        it->second.lastValidatedAt = m_frameTimeNow;
+        if (it->second.mtimeNs == mtimeNs)
+            return &it->second;
+    }
+
     std::error_code ec;
     if (!fs::is_directory(fs::u8path(path), ec))
         return nullptr;
 
     int64_t mtimeNs = GetMtimeNs(path);
-    auto it = m_dirCache.find(path);
-    if (it != m_dirCache.end() && it->second.mtimeNs == mtimeNs)
-        return &it->second;
 
     DirSnapshot snap;
     snap.mtimeNs = mtimeNs;
+    snap.lastValidatedAt = m_frameTimeNow;
 
     for (auto &entry : fs::directory_iterator(fs::u8path(path), ec))
     {
@@ -576,10 +586,7 @@ void ProjectPanel::QueueThumbnailRequest(const std::string &kind, const std::str
     auto retryIt = m_thumbRetryAfter.find(retryKey);
     if (retryIt != m_thumbRetryAfter.end())
     {
-        auto now = std::chrono::duration<double>(
-                       std::chrono::steady_clock::now().time_since_epoch())
-                       .count();
-        if (retryIt->second > now)
+        if (retryIt->second > m_frameTimeNow)
             return;
     }
 
@@ -642,9 +649,7 @@ int64_t ProjectPanel::GetMaterialMtimeNs(const std::string &filePath)
     if (filePath.empty())
         return 0;
 
-    auto now = std::chrono::duration<double>(
-                   std::chrono::steady_clock::now().time_since_epoch())
-                   .count();
+    double now = m_frameTimeNow;
 
     auto it = m_materialMtimeCache.find(filePath);
     if (it != m_materialMtimeCache.end() && (now - it->second.second) < 1.0)
@@ -664,8 +669,6 @@ uint64_t ProjectPanel::GetThumbnail(const std::string &filePath, int64_t cachedM
     if (filePath.empty() || !m_renderer)
         return 0;
 
-    std::string thumbName = "__thumb__" + filePath;
-
     if (cachedMtimeNs == 0)
     {
         std::error_code ec;
@@ -674,12 +677,13 @@ uint64_t ProjectPanel::GetThumbnail(const std::string &filePath, int64_t cachedM
         cachedMtimeNs = GetMtimeNs(filePath);
     }
 
-    // 1. C++ side cache
+    // Fast path: C++ cache hit — no string allocation needed
     auto it = m_thumbnailCache.find(filePath);
     if (it != m_thumbnailCache.end() && it->second.mtimeNs == cachedMtimeNs && it->second.texId != 0)
         return it->second.texId;
 
-    // 2. Renderer-side GPU cache
+    // Slow path: check renderer GPU cache (string allocation only on miss)
+    std::string thumbName = "__thumb__" + filePath;
     if (m_renderer->HasImGuiTexture(thumbName))
     {
         auto texId = m_renderer->GetImGuiTextureId(thumbName);
@@ -699,12 +703,11 @@ uint64_t ProjectPanel::GetMaterialThumbnail(const std::string &filePath)
     if (filePath.empty() || !m_renderer)
         return 0;
 
-    std::string thumbName = "__mat_thumb__" + filePath;
-
     int64_t mtimeNs = GetMaterialMtimeNs(filePath);
     if (mtimeNs == 0)
         return 0;
 
+    // Fast path: C++ cache hit — no string allocation
     auto it = m_thumbnailCache.find(filePath);
     if (it != m_thumbnailCache.end())
     {
@@ -712,6 +715,7 @@ uint64_t ProjectPanel::GetMaterialThumbnail(const std::string &filePath)
             return it->second.texId;
         if (it->second.mtimeNs != mtimeNs)
         {
+            std::string thumbName = "__mat_thumb__" + filePath;
             if (m_renderer->HasImGuiTexture(thumbName))
                 m_renderer->RemoveImGuiTexture(thumbName);
             m_thumbnailCache.erase(it);
@@ -735,9 +739,7 @@ void ProjectPanel::ProcessPendingThumbnails()
     }
 
     int remaining = std::max(THUMBS_PER_FRAME - m_thumbsLoadedThisFrame, 0);
-    auto now = std::chrono::duration<double>(
-                   std::chrono::steady_clock::now().time_since_epoch())
-                   .count();
+    double now = m_frameTimeNow;
 
     while (!m_thumbQueue.empty() && remaining > 0)
     {
@@ -1000,8 +1002,8 @@ ProjectPanel::GridRange ProjectPanel::GetVisibleGridRange(
     float scrollY = std::max(ctx->GetScrollY() - startY, 0.0f);
     float viewportH = std::max(ctx->GetContentRegionAvailHeight(), rowHeight);
     int totalRows = (itemCount + cols - 1) / cols;
-    int firstRow = std::max(static_cast<int>(scrollY / rowHeight) - 1, 0);
-    int visibleRows = std::max(static_cast<int>(viewportH / rowHeight) + 3, 1);
+    int firstRow = std::max(static_cast<int>(scrollY / rowHeight), 0);
+    int visibleRows = std::max(static_cast<int>(viewportH / rowHeight) + 2, 1);
     int lastRow = std::min(totalRows, firstRow + visibleRows);
 
     GridRange r;
@@ -1028,9 +1030,7 @@ bool ProjectPanel::IsShift(InxGUIContext *ctx) const
 
 void ProjectPanel::HandleItemClick(const FileItem &item, InxGUIContext *ctx)
 {
-    auto now = std::chrono::duration<double>(
-                   std::chrono::steady_clock::now().time_since_epoch())
-                   .count();
+    double now = m_frameTimeNow;
     bool doubleClicked = (m_lastClickedFile == item.path && (now - m_lastClickTime) < 0.4);
     m_lastClickedFile = item.path;
     m_lastClickTime = now;
@@ -1129,13 +1129,24 @@ void ProjectPanel::HandleItemClick(const FileItem &item, InxGUIContext *ctx)
 
 void ProjectPanel::HandleKeyboardShortcuts(InxGUIContext *ctx)
 {
+    if (!m_renamingPath.empty())
+        return;
+
+    bool ctrl = IsCtrl(ctx);
+    // Early out: avoid GetSelectedPaths() syscalls when no key is pressed
+    bool anyRelevantKey =
+        ctx->IsKeyPressed(kKeyF2) || ctx->IsKeyPressed(kKeyDelete) ||
+        (ctrl && (ctx->IsKeyPressed(kKeyC) || ctx->IsKeyPressed(kKeyX) ||
+                  ctx->IsKeyPressed(kKeyV)));
+    if (!anyRelevantKey)
+        return;
+
     auto selected = GetSelectedPaths();
     bool hasSel = !selected.empty();
     bool singleSel = (selected.size() == 1 && !m_selectedFile.empty());
 
-    if (hasSel && m_renamingPath.empty())
+    if (hasSel)
     {
-        bool ctrl = IsCtrl(ctx);
         if (ctx->IsKeyPressed(kKeyF2) && singleSel)
             BeginRename(m_selectedFile);
         else if (ctx->IsKeyPressed(kKeyDelete))
@@ -1155,9 +1166,9 @@ void ProjectPanel::HandleKeyboardShortcuts(InxGUIContext *ctx)
         else if (ctrl && ctx->IsKeyPressed(kKeyV))
             ClipboardPaste();
     }
-    else if (!hasSel && m_renamingPath.empty())
+    else
     {
-        if (IsCtrl(ctx) && ctx->IsKeyPressed(kKeyV))
+        if (ctrl && ctx->IsKeyPressed(kKeyV))
             ClipboardPaste();
     }
 }
@@ -1526,6 +1537,9 @@ void ProjectPanel::MoveProjectItemsToFolder(
 
 void ProjectPanel::PreRender(InxGUIContext *ctx)
 {
+    m_frameTimeNow = std::chrono::duration<double>(
+                         std::chrono::steady_clock::now().time_since_epoch())
+                         .count();
     m_thumbsLoadedThisFrame = 0;
     EnsureTypeIconsLoaded();
     ProcessPendingThumbnails();
@@ -1658,8 +1672,8 @@ void ProjectPanel::RenderFolderTreeRecursive(
         if (!hasSubdirs)
             flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 
-        bool open = ctx->TreeNodeEx(
-            (d.name + "##" + d.path).c_str(), flags);
+        ImGui::PushID(d.path.c_str());
+        bool open = ctx->TreeNodeEx(d.name.c_str(), flags);
         if (ctx->IsItemClicked())
             m_currentPath = d.path;
         if (hasSubdirs && open)
@@ -1667,6 +1681,7 @@ void ProjectPanel::RenderFolderTreeRecursive(
             RenderFolderTreeRecursive(ctx, d.path);
             ctx->TreePop();
         }
+        ImGui::PopID();
     }
 }
 
@@ -1729,39 +1744,102 @@ void ProjectPanel::RenderFileGrid(InxGUIContext *ctx)
             ctx->TableNextRow();
         }
 
-        // Style: push once for all icon buttons
-        ctx->PushStyleVarVec2(ImGuiStyleVar_FramePadding, 0.0f, 0.0f);
-        // Unselected icon style: ghost button + subtle hover + no border
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-        ImGui::PushStyleColor(ImGuiCol_Button,
-                              ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                              ImVec4(1.0f, 1.0f, 1.0f, 0.06f));
+        bool hasDragPayload = (ImGui::GetDragDropPayload() != nullptr);
+        ImDrawList *drawList = ImGui::GetWindowDrawList();
+        float cellW = static_cast<float>(CELL_WIDTH);
 
         for (int i = range.startIndex; i < range.endIndex; ++i)
         {
             auto &item = (*items)[i];
             ctx->TableNextColumn();
-            ctx->BeginGroup();
+            ImGui::PushID(i);
 
             bool isSelected = m_selectedSet.count(item.path) > 0;
-            float cellStartX = ctx->GetCursorPosX();
 
-            RenderGridItem(ctx, item, iconSize, isSelected, cellStartX);
+            // ── Resolve display texture (inline for speed) ──
+            uint64_t displayTexId = 0;
+            if (item.type == FileItem::SubMesh)
+            {
+                auto tic = m_typeIconCache.find("model_3d");
+                displayTexId = tic != m_typeIconCache.end() ? tic->second : 0;
+            }
+            else if (item.type == FileItem::SubMaterial)
+            {
+                auto tic = m_typeIconCache.find("material");
+                displayTexId = tic != m_typeIconCache.end() ? tic->second : 0;
+            }
+            else if (item.type == FileItem::File)
+            {
+                if (IsImageExt(item.ext))
+                    displayTexId = GetThumbnail(item.path, item.mtimeNs);
+                else if (IsMaterialExt(item.ext))
+                    displayTexId = GetMaterialThumbnail(item.path);
+                if (displayTexId == 0)
+                    displayTexId = GetTypeIconId(item);
+            }
+            else
+            {
+                displayTexId = GetTypeIconId(item);
+            }
+
+            // ── Render icon ──
+            if (displayTexId != 0)
+            {
+                // InvisibleButton for hit-testing; AddImage for drawing
+                // Much cheaper than ImageButton (no style/border processing)
+                ImGui::InvisibleButton("##ic", ImVec2(iconSize, iconSize));
+                ImVec2 rMin = ImGui::GetItemRectMin();
+                ImVec2 rMax = ImGui::GetItemRectMax();
+                drawList->AddImage(ImTextureRef(static_cast<ImTextureID>(displayTexId)), rMin, rMax);
+                if (ImGui::IsItemClicked(0))
+                    HandleItemClick(item, ctx);
+                if (ImGui::IsItemClicked(1))
+                {
+                    m_selectedFile = item.path;
+                    if (m_selectedSet.count(item.path) == 0)
+                    {
+                        m_selectedFiles = {item.path};
+                        m_selectedSet = {item.path};
+                    }
+                    NotifySelectionChanged();
+                }
+                if (isSelected)
+                    drawList->AddRectFilled(rMin, rMax, IM_COL32(235, 87, 87, 140));
+            }
+            else
+            {
+                const char *tag = (item.type != FileItem::Dir)
+                                      ? GetFileTypeTag(item.name)
+                                      : "[DIR]";
+                if (ctx->Selectable(tag, isSelected, 0, iconSize, iconSize))
+                    HandleItemClick(item, ctx);
+                if (ctx->IsItemClicked(1))
+                {
+                    m_selectedFile = item.path;
+                    if (m_selectedSet.count(item.path) == 0)
+                    {
+                        m_selectedFiles = {item.path};
+                        m_selectedSet = {item.path};
+                    }
+                    NotifySelectionChanged();
+                }
+            }
+
+            // ── Drag-drop source (must always run to detect drag start) ──
             RenderDragDropSource(ctx, item);
 
-            if (item.type == FileItem::Dir)
+            // ── Folder drop target (only when a drag is active) ──
+            if (hasDragPayload && item.type == FileItem::Dir)
                 RenderFolderDropTarget(ctx, item.path);
 
-            RenderItemLabel(ctx, item, iconSize, cellStartX);
+            // ── Label ──
+            {
+                float cellStartX = ImGui::GetItemRectMin().x - ImGui::GetWindowPos().x + ImGui::GetScrollX();
+                RenderItemLabel(ctx, item, iconSize, cellStartX);
+            }
 
-            ctx->EndGroup();
+            ImGui::PopID();
         }
-
-        // Pop styles
-        ImGui::PopStyleColor(2);  // Button, ButtonHovered
-        ImGui::PopStyleVar(1);    // FrameBorderSize
-        ctx->PopStyleVar(1);      // FramePadding
 
         if (range.bottomSpacer > 0.0f)
         {
@@ -1784,19 +1862,22 @@ void ProjectPanel::RenderFileGrid(InxGUIContext *ctx)
             ClearSelection();
             NotifyEmptyAreaClicked();
         }
-        // Accept HIERARCHY_GAMEOBJECT drop
-        ImGui::PushStyleColor(ImGuiCol_DragDropTarget, ImVec4(0, 0, 0, 0));
-        if (ctx->BeginDragDropTarget())
+        // Accept HIERARCHY_GAMEOBJECT drop (only when a drag is active)
+        if (ImGui::GetDragDropPayload() != nullptr)
         {
-            uint64_t objId = 0;
-            if (ctx->AcceptDragDropPayload(DRAG_TYPE_HIERARCHY_GO, &objId))
+            ImGui::PushStyleColor(ImGuiCol_DragDropTarget, ImVec4(0, 0, 0, 0));
+            if (ctx->BeginDragDropTarget())
             {
-                if (createPrefabFromHierarchy)
-                    createPrefabFromHierarchy(objId, m_currentPath);
+                uint64_t objId = 0;
+                if (ctx->AcceptDragDropPayload(DRAG_TYPE_HIERARCHY_GO, &objId))
+                {
+                    if (createPrefabFromHierarchy)
+                        createPrefabFromHierarchy(objId, m_currentPath);
+                }
+                ctx->EndDragDropTarget();
             }
-            ctx->EndDragDropTarget();
+            ImGui::PopStyleColor(1);
         }
-        ImGui::PopStyleColor(1);
     }
 }
 
@@ -1926,99 +2007,25 @@ void ProjectPanel::RenderContextMenu(InxGUIContext *ctx)
     ctx->EndPopup();
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Grid item rendering
-// ════════════════════════════════════════════════════════════════════
-
-void ProjectPanel::RenderGridItem(InxGUIContext *ctx, const FileItem &item,
-                                  float iconSize, bool isSelected, float cellStartX)
-{
-    // Resolve display texture
-    uint64_t displayTexId = 0;
-    if (item.type == FileItem::SubMesh)
-    {
-        auto it = m_typeIconCache.find("model_3d");
-        displayTexId = it != m_typeIconCache.end() ? it->second : 0;
-    }
-    else if (item.type == FileItem::SubMaterial)
-    {
-        auto it = m_typeIconCache.find("material");
-        displayTexId = it != m_typeIconCache.end() ? it->second : 0;
-    }
-    else if (item.type == FileItem::File)
-    {
-        if (IsImageExt(item.ext))
-            displayTexId = GetThumbnail(item.path, item.mtimeNs);
-        else if (IsMaterialExt(item.ext))
-            displayTexId = GetMaterialThumbnail(item.path);
-        if (displayTexId == 0)
-            displayTexId = GetTypeIconId(item);
-    }
-    else
-    {
-        displayTexId = GetTypeIconId(item);
-    }
-
-    if (displayTexId != 0)
-    {
-        std::string btnId = "##icon_" + item.path;
-        if (ctx->ImageButton(btnId, reinterpret_cast<void *>(displayTexId), iconSize, iconSize))
-            HandleItemClick(item, ctx);
-        if (ctx->IsItemClicked(1))
-        {
-            m_selectedFile = item.path;
-            if (m_selectedSet.count(item.path) == 0)
-            {
-                m_selectedFiles = {item.path};
-                m_selectedSet = {item.path};
-            }
-            NotifySelectionChanged();
-        }
-        if (isSelected)
-        {
-            ctx->DrawFilledRect(
-                ctx->GetItemRectMinX(), ctx->GetItemRectMinY(),
-                ctx->GetItemRectMaxX(), ctx->GetItemRectMaxY(),
-                0.922f, 0.341f, 0.341f, 0.55f, 0.0f);
-        }
-    }
-    else
-    {
-        const char *tag = (item.type != FileItem::Dir)
-                              ? GetFileTypeTag(item.name)
-                              : "[DIR]";
-        std::string label = std::string(tag) + "\n##" + item.path;
-        if (ctx->Selectable(label, isSelected, 0, iconSize, iconSize))
-            HandleItemClick(item, ctx);
-        if (ctx->IsItemClicked(1))
-        {
-            m_selectedFile = item.path;
-            if (m_selectedSet.count(item.path) == 0)
-            {
-                m_selectedFiles = {item.path};
-                m_selectedSet = {item.path};
-            }
-            NotifySelectionChanged();
-        }
-    }
-}
-
 void ProjectPanel::RenderDragDropSource(InxGUIContext *ctx, const FileItem &item)
 {
+    if (item.type != FileItem::Dir && item.type != FileItem::File)
+        return;
+
+    // BeginDragDropSource is cheap (~1µs) — returns false 99.9% of the time.
+    // All map lookups and string formatting are deferred to the rare drag-active path.
+    if (!ctx->BeginDragDropSource(0))
+        return;
+
     if (item.type == FileItem::Dir)
     {
-        if (ctx->BeginDragDropSource(0))
-        {
-            ctx->SetDragDropPayload(DRAG_TYPE_PROJECT_ITEM, item.path);
-            ctx->Label("Folder: " + item.name);
-            ctx->EndDragDropSource();
-        }
+        ctx->SetDragDropPayload(DRAG_TYPE_PROJECT_ITEM, item.path);
+        ctx->Label("Folder: " + item.name);
+        ctx->EndDragDropSource();
         return;
     }
 
-    if (item.type != FileItem::File)
-        return;
-
+    // File type — resolve drag payload only when actually dragging
     auto &ddMap = GetDragDropMap();
     auto &gdMap = GetGuidDragDropMap();
     auto ddIt = ddMap.find(item.ext);
@@ -2029,7 +2036,6 @@ void ProjectPanel::RenderDragDropSource(InxGUIContext *ctx, const FileItem &item
         const char *pType = ddIt->second.payloadType;
         const char *labelPfx = ddIt->second.label;
 
-        // For .py scripts, validate component via callback
         if (item.ext == ".py" && validateScriptComponent)
         {
             if (!validateScriptComponent(item.path))
@@ -2039,41 +2045,31 @@ void ProjectPanel::RenderDragDropSource(InxGUIContext *ctx, const FileItem &item
             }
         }
 
-        if (ctx->BeginDragDropSource(0))
-        {
-            ctx->SetDragDropPayload(pType, item.path);
-            ctx->Label(std::string(labelPfx) + ": " + item.name);
-            ctx->EndDragDropSource();
-        }
+        ctx->SetDragDropPayload(pType, item.path);
+        ctx->Label(std::string(labelPfx) + ": " + item.name);
     }
     else if (gdIt != gdMap.end())
     {
-        if (ctx->BeginDragDropSource(0))
-        {
-            std::string guid;
-            if (getGuidFromPath)
-                guid = getGuidFromPath(item.path);
-            else if (m_assetDatabase)
-                guid = m_assetDatabase->GetGuidFromPath(item.path);
+        std::string guid;
+        if (getGuidFromPath)
+            guid = getGuidFromPath(item.path);
+        else if (m_assetDatabase)
+            guid = m_assetDatabase->GetGuidFromPath(item.path);
 
-            if (!guid.empty())
-                ctx->SetDragDropPayload(gdIt->second.guidPayloadType, guid);
-            else
-                ctx->SetDragDropPayload(gdIt->second.pathPayloadType, item.path);
+        if (!guid.empty())
+            ctx->SetDragDropPayload(gdIt->second.guidPayloadType, guid);
+        else
+            ctx->SetDragDropPayload(gdIt->second.pathPayloadType, item.path);
 
-            ctx->Label(std::string(gdIt->second.label) + ": " + item.name);
-            ctx->EndDragDropSource();
-        }
+        ctx->Label(std::string(gdIt->second.label) + ": " + item.name);
     }
     else
     {
-        if (ctx->BeginDragDropSource(0))
-        {
-            ctx->SetDragDropPayload(DRAG_TYPE_PROJECT_ITEM, item.path);
-            ctx->Label("Item: " + item.name);
-            ctx->EndDragDropSource();
-        }
+        ctx->SetDragDropPayload(DRAG_TYPE_PROJECT_ITEM, item.path);
+        ctx->Label("Item: " + item.name);
     }
+
+    ctx->EndDragDropSource();
 }
 
 void ProjectPanel::RenderFolderDropTarget(InxGUIContext *ctx, const std::string &folderPath)
