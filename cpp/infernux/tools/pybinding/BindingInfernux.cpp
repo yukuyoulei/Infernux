@@ -618,6 +618,54 @@ PYBIND11_MODULE(_Infernux, m)
             },
             "Get current present mode (0=IMMEDIATE, 1=MAILBOX, 2=FIFO, 3=FIFO_RELAXED)")
         // ========================================================================
+        // Editor Power-Save / Idle Mode
+        // ========================================================================
+        .def(
+            "set_editor_idle_enabled",
+            [](Infernux &self, bool enabled) {
+                auto *r = self.GetRenderer();
+                if (r)
+                    r->SetEditorIdleEnabled(enabled);
+            },
+            py::arg("enabled"), "Enable/disable editor idle mode (reduced FPS when no input)")
+        .def(
+            "is_editor_idle_enabled",
+            [](Infernux &self) -> bool {
+                auto *r = self.GetRenderer();
+                return r && r->IsEditorIdleEnabled();
+            },
+            "Check if editor idle mode is enabled")
+        .def(
+            "set_editor_idle_fps",
+            [](Infernux &self, float fps) {
+                auto *r = self.GetRenderer();
+                if (r)
+                    r->SetEditorIdleFps(fps);
+            },
+            py::arg("fps"), "Set idle-mode target FPS (e.g. 10). 0 disables idling.")
+        .def(
+            "get_editor_idle_fps",
+            [](Infernux &self) -> float {
+                auto *r = self.GetRenderer();
+                return r ? r->GetEditorIdleFps() : 0.0f;
+            },
+            "Get idle-mode target FPS")
+        .def(
+            "is_editor_idling",
+            [](Infernux &self) -> bool {
+                auto *r = self.GetRenderer();
+                return r && r->IsEditorIdling();
+            },
+            "Check if editor is currently in idle (reduced FPS) state")
+        .def(
+            "request_full_speed_frame",
+            [](Infernux &self) {
+                auto *r = self.GetRenderer();
+                if (r)
+                    r->RequestFullSpeedFrame();
+            },
+            "Force full-speed rendering for the next few frames")
+        // ========================================================================
         // Scene Picking API - for editor selection
         // ========================================================================
         .def("pick_scene_object_id", &Infernux::PickSceneObjectId, py::arg("screen_x"), py::arg("screen_y"),

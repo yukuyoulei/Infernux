@@ -202,6 +202,11 @@ class TestProjectPanelPublicAPI:
         pp = ProjectPanel()
         pp.clear_selection()  # No crash
 
+    def test_set_selected_file(self):
+        pp = ProjectPanel()
+        pp.set_selected_file("/tmp/test.mat")
+        # No crash — used by selection undo replay
+
     def test_invalidate_material_thumbnail(self):
         pp = ProjectPanel()
         pp.invalidate_material_thumbnail("/path/to/mat.mat")

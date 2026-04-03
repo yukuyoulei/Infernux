@@ -398,7 +398,7 @@ class SceneViewPanel(EditorPanel):
                 ctx.push_style_color(ImGuiCol.ButtonActive, *Theme.PREFAB_BTN_ACTIVE)
                 
                 if ctx.button(t("scene_view.exit_prefab_mode")):
-                    scene_file_manager.exit_prefab_mode()
+                    scene_file_manager.exit_prefab_mode_with_undo()
                 if ctx.is_item_hovered() and ctx.is_mouse_button_down(0):
                     overlay_hovered = True
                     

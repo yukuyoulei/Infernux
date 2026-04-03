@@ -24,6 +24,7 @@ struct ComponentInfo
     bool isScript = false;  // Python script (show "(Script)" suffix)
     bool isBroken = false;  // Script has load errors
     std::string brokenError;
+    uint64_t iconId = 0;    // Pre-resolved texture ID for component icon
 };
 
 /// Inspector display mode — mutually exclusive.
@@ -215,6 +216,9 @@ class InspectorPanel : public EditorPanel
     uint64_t m_cachedObjInfoId = 0;
     ObjectInfo m_cachedObjInfo;
     PrefabInfo m_cachedPrefabInfo;
+
+    // ── Cached icon IDs ──────────────────────────────────────────────
+    uint64_t m_cachedTransformIconId = 0;
 
     // ── Render helpers ───────────────────────────────────────────────
     void RenderPropertiesModule(InxGUIContext *ctx, float height);

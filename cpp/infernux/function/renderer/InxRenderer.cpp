@@ -403,6 +403,12 @@ void InxRenderer::DrawFrame()
 
     // Window events
     m_view->ProcessEvent();
+
+    // When the game camera is active (play mode / game preview) or the
+    // scene view is actively rendering, we need full frame rate — skip idle.
+    if (m_gameCameraEnabled) {
+        m_view->RequestFullSpeedFrame();
+    }
 #if INFERNUX_FRAME_PROFILE
     _fp.stamp(); // [1] after input/event processing
 #endif
@@ -1675,6 +1681,43 @@ int InxRenderer::GetPresentMode() const
     if (m_vkCore)
         return m_vkCore->GetPresentMode();
     return 1; // MAILBOX default
+}
+
+// ========================================================================
+// Editor Power-Save / Idle Mode
+// ========================================================================
+
+void InxRenderer::SetEditorIdleEnabled(bool enabled)
+{
+    if (m_view)
+        m_view->GetIdling().enableIdling = enabled;
+}
+
+bool InxRenderer::IsEditorIdleEnabled() const
+{
+    return m_view ? m_view->GetIdling().enableIdling : false;
+}
+
+void InxRenderer::SetEditorIdleFps(float fps)
+{
+    if (m_view)
+        m_view->GetIdling().fpsIdle = fps;
+}
+
+float InxRenderer::GetEditorIdleFps() const
+{
+    return m_view ? m_view->GetIdling().fpsIdle : 0.0f;
+}
+
+bool InxRenderer::IsEditorIdling() const
+{
+    return m_view ? m_view->GetIdling().isIdling : false;
+}
+
+void InxRenderer::RequestFullSpeedFrame()
+{
+    if (m_view)
+        m_view->RequestFullSpeedFrame();
 }
 
 } // namespace infernux

@@ -243,6 +243,29 @@ class InxRenderer
     /// @brief Get current present mode (0=IMMEDIATE, 1=MAILBOX, 2=FIFO, 3=FIFO_RELAXED)
     int GetPresentMode() const;
 
+    // ========================================================================
+    // Editor Power-Save / Idle Mode
+    // ========================================================================
+
+    /// @brief Enable/disable editor idle mode (reduced FPS when no input).
+    void SetEditorIdleEnabled(bool enabled);
+
+    /// @brief Check if editor idle mode is enabled.
+    bool IsEditorIdleEnabled() const;
+
+    /// @brief Set the idle-mode target FPS (e.g. 10).  0 disables idling.
+    void SetEditorIdleFps(float fps);
+
+    /// @brief Get the current idle-mode target FPS.
+    float GetEditorIdleFps() const;
+
+    /// @brief Check if the editor is currently in idle (reduced-FPS) state.
+    bool IsEditorIdling() const;
+
+    /// @brief Force full-speed rendering for the next few frames (e.g. after
+    /// a programmatic scene change that doesn't generate SDL events).
+    void RequestFullSpeedFrame();
+
   private:
     InxAppMetadata m_appMetadata;
     InxAppMetadata m_rendererMetadata;

@@ -344,16 +344,16 @@ class VkPipelineManager
         m_skipWaitIdle = v;
     }
 
-    /// @brief Forget all tracked resources WITHOUT destroying them.
+    /// @brief Forget non-pipeline tracked resources WITHOUT destroying them.
     /// Call this when the actual Vulkan handles have already been destroyed
     /// by other owners (RenderGraph, ShaderProgram, etc.) so that
-    /// Destroy() does not double-free them.
-    void ClearTrackedResources() noexcept
+    /// Destroy() does not double-free them. Tracked VkPipeline handles are
+    /// intentionally preserved so Destroy() can still reclaim any leftovers.
+    void ClearTrackedNonPipelineResources() noexcept
     {
         m_shaderModules.clear();
         m_renderPasses.clear();
         m_pipelineLayouts.clear();
-        m_pipelines.clear();
         m_descriptorSetLayouts.clear();
     }
 

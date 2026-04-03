@@ -259,6 +259,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
     changed = False
     requires_deserialize = False
     requires_pipeline_refresh = False
+    change_key = ""
 
     # Sync shader annotations (both vertex + fragment properties)
     vert_shader_id = mat_data.get("shaders", {}).get("vertex", "")
@@ -317,9 +318,10 @@ def render_material_body(ctx: InxGUIContext, panel, state):
         vert_display = shader_utils.shader_display_from_value(vert_path, vert_items)
 
         def _on_vert_pick(picked):
-            nonlocal changed, requires_deserialize, requires_pipeline_refresh
+            nonlocal changed, requires_deserialize, requires_pipeline_refresh, change_key
             shaders["vertex"] = picked
             changed = True
+            change_key = "shader.vertex"
             requires_deserialize = True
             requires_pipeline_refresh = True
             frag_id = shaders.get("fragment", "")
@@ -336,6 +338,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                 if ctx.selectable(display, value == vert_path):
                     shaders["vertex"] = value
                     changed = True
+                    change_key = "shader.vertex"
                     requires_deserialize = True
                     requires_pipeline_refresh = True
                     frag_id = shaders.get("fragment", "")
@@ -349,10 +352,11 @@ def render_material_body(ctx: InxGUIContext, panel, state):
         frag_display = shader_utils.shader_display_from_value(frag_path, frag_items)
 
         def _on_frag_pick(picked):
-            nonlocal changed, requires_deserialize, requires_pipeline_refresh
+            nonlocal changed, requires_deserialize, requires_pipeline_refresh, change_key
             old_frag = shaders.get("fragment", "")
             shaders["fragment"] = picked
             changed = True
+            change_key = "shader.fragment"
             requires_deserialize = True
             requires_pipeline_refresh = True
             if picked != old_frag:
@@ -371,6 +375,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                     old_frag = shaders.get("fragment", "")
                     shaders["fragment"] = value
                     changed = True
+                    change_key = "shader.fragment"
                     requires_deserialize = True
                     requires_pipeline_refresh = True
                     if value != old_frag:
@@ -427,6 +432,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                 overrides |= 0x40   # RenderQueue
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.surface_type"
             requires_deserialize = True
             requires_pipeline_refresh = True
 
@@ -442,6 +448,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
             overrides |= 0x01  # CullMode
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.cull_mode"
             requires_deserialize = True
             requires_pipeline_refresh = True
 
@@ -454,6 +461,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
             overrides |= 0x02  # DepthWrite
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.depth_write"
             requires_deserialize = True
             requires_pipeline_refresh = True
 
@@ -476,6 +484,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
             overrides |= 0x08  # DepthCompareOp
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.depth_test"
             requires_deserialize = True
             requires_pipeline_refresh = True
         elif dt_enable and new_op != dt_op:
@@ -483,6 +492,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
             overrides |= 0x08  # DepthCompareOp
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.depth_test"
             requires_deserialize = True
             requires_pipeline_refresh = True
 
@@ -514,6 +524,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                 overrides |= 0x20  # BlendMode
                 mat_data["renderStateOverrides"] = overrides
                 changed = True
+                change_key = "render_state.blend_mode"
                 requires_deserialize = True
                 requires_pipeline_refresh = True
 
@@ -529,6 +540,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
             overrides |= 0x100  # AlphaClip
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.alpha_clip"
             requires_deserialize = True
             requires_pipeline_refresh = True
         if rs.get("alphaClipEnabled", False):
@@ -539,6 +551,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                 overrides |= 0x100  # AlphaClip
                 mat_data["renderStateOverrides"] = overrides
                 changed = True
+                change_key = "render_state.alpha_threshold"
                 requires_deserialize = True
                 requires_pipeline_refresh = True
 
@@ -554,6 +567,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
             overrides |= 0x40  # RenderQueue
             mat_data["renderStateOverrides"] = overrides
             changed = True
+            change_key = "render_state.render_queue"
             requires_deserialize = True
             requires_pipeline_refresh = True
 
@@ -586,6 +600,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                     else:
                         _apply_native_prop(prop_name, prop["value"], ptype)
                     changed = True
+                    change_key = f"property.{prop_name}"
                     if ptype == 6:  # Texture needs full deserialize
                         requires_deserialize = True
     if is_builtin:
@@ -618,6 +633,7 @@ def render_material_body(ctx: InxGUIContext, panel, state):
                         new_json,
                         "Edit Material",
                         refresh_callback=lambda _mat: _refresh_pipeline(panel),
+                        edit_key=change_key,
                     ))
         except (RuntimeError, ValueError):
             pass

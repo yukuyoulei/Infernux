@@ -87,6 +87,7 @@ class EditorBootstrap:
         # Selection state
         self._prev_selection = [0]  # kept for scene-change cleanup
         self._prev_selection_ids: list = []  # for undo recording
+        self._prev_selected_file: str = ""
 
         # Progress tracking for launcher splash
         self._phase = 0
@@ -1276,20 +1277,39 @@ class EditorBootstrap:
         )
 
         # -- File operation callbacks --
-        pp.create_folder = lambda cur, name: file_ops.create_folder(cur, name)
-        pp.create_script = lambda cur, name: file_ops.create_script(cur, name, adb)
-        pp.create_shader = lambda cur, name, typ: file_ops.create_shader(cur, name, typ, adb)
-        pp.create_material = lambda cur, name: file_ops.create_material(cur, name, adb)
-        pp.create_scene = lambda cur, name: file_ops.create_scene(cur, name, adb)
-        pp.do_rename = lambda old, new_name: (
-            file_ops.do_rename(old, new_name, adb) or ""
-        )
+        from Infernux.debug import Debug
+
+        def _safe_project_create(cb, *args):
+            try:
+                return cb(*args)
+            except Exception as exc:
+                Debug.log_error(f"ProjectPanel create failed: {exc}")
+                return False, str(exc)
+
+        def _safe_project_path(cb, *args):
+            try:
+                return cb(*args) or ""
+            except Exception as exc:
+                Debug.log_error(f"ProjectPanel path operation failed: {exc}")
+                return ""
+
+        pp.create_folder = lambda cur, name: _safe_project_create(
+            file_ops.create_folder, cur, name)
+        pp.create_script = lambda cur, name: _safe_project_create(
+            file_ops.create_script, cur, name, adb)
+        pp.create_shader = lambda cur, name, typ: _safe_project_create(
+            file_ops.create_shader, cur, name, typ, adb)
+        pp.create_material = lambda cur, name: _safe_project_create(
+            file_ops.create_material, cur, name, adb)
+        pp.create_scene = lambda cur, name: _safe_project_create(
+            file_ops.create_scene, cur, name, adb)
+        pp.do_rename = lambda old, new_name: _safe_project_path(
+            file_ops.do_rename, old, new_name, adb)
         pp.get_unique_name = lambda cur, base, ext: (
             file_ops.get_unique_name(cur, base, ext)
         )
-        pp.move_item_to_directory = lambda item, dest: (
-            file_ops.move_item_to_directory(item, dest, adb) or ""
-        )
+        pp.move_item_to_directory = lambda item, dest: _safe_project_path(
+            file_ops.move_item_to_directory, item, dest, adb)
 
         # -- Delete (with Win32 confirmation dialog) --
         def _delete_items(paths):
@@ -1400,7 +1420,7 @@ class EditorBootstrap:
         pp.open_scene = _open_scene
 
         pp.open_prefab_mode = lambda path: (
-            SceneFileManager.instance().open_prefab_mode(path)
+            SceneFileManager.instance().open_prefab_mode_with_undo(path)
             if SceneFileManager.instance() else None
         )
 
@@ -1522,6 +1542,7 @@ class EditorBootstrap:
                 ci.is_native = True
                 ci.is_script = False
                 ci.is_broken = False
+                ci.icon_id = _get_component_icon_id(comp_type_name, False)
                 items.append(ci)
                 native_map[comp_id] = comp
 
@@ -1538,6 +1559,7 @@ class EditorBootstrap:
                     getattr(py_comp, '_broken_error', '') or ''
                     if ci.is_broken else ''
                 )
+                ci.icon_id = _get_component_icon_id(ci.type_name, True)
                 items.append(ci)
                 py_map[comp_id] = py_comp
 
@@ -1594,6 +1616,14 @@ class EditorBootstrap:
                                             f"Set {prop_name}"))
             else:
                 setattr(obj, prop_name, new_val)
+            # DEBUG: verify active property change took effect
+            if prop_name == "active":
+                actual = getattr(obj, prop_name, None)
+                if actual != new_val:
+                    from Infernux.debug import Debug
+                    Debug.log_warning(
+                        f"[Inspector] SetActive failed: old={old_val}, "
+                        f"requested={new_val}, actual={actual}, obj={obj_id}")
 
         ip.set_object_property = _set_object_property
 
@@ -1754,17 +1784,14 @@ class EditorBootstrap:
             return True
 
         def _render_component_context_menu(ctx, obj_id, type_name, comp_id, is_native):
-            popup_id = "comp_ctx" if is_native else "py_comp_ctx"
-            if not ctx.begin_popup_context_item(popup_id):
-                return False
+            # C++ handles BeginPopupContextItem/EndPopup — render menu items only.
+            # Return True if component was removed (C++ skips EndPopup in that case).
             scene = SceneManager.instance().get_active_scene()
             obj = scene.find_by_id(obj_id) if scene else None
             if obj is None:
-                ctx.end_popup()
                 return False
             comp = _resolve_component(obj_id, comp_id, is_native)
             if comp is None:
-                ctx.end_popup()
                 return False
             # Copy
             if ctx.selectable(_t("inspector.copy_properties")):
@@ -1773,7 +1800,6 @@ class EditorBootstrap:
             # Remove
             if ctx.selectable(_t("inspector.remove")):
                 if not _can_remove_component(obj, comp, type_name, is_native):
-                    ctx.end_popup()
                     return False
                 if is_native:
                     from Infernux.engine.undo import UndoManager, RemoveNativeComponentCommand
@@ -1782,7 +1808,6 @@ class EditorBootstrap:
                         mgr.execute(RemoveNativeComponentCommand(obj.id, type_name, comp))
                         _invalidate_component_cache()
                     elif obj.remove_component(comp) is False:
-                        ctx.end_popup()
                         return False
                     else:
                         _invalidate_component_cache()
@@ -1793,13 +1818,11 @@ class EditorBootstrap:
                         mgr.execute(RemovePyComponentCommand(obj.id, comp))
                         _invalidate_component_cache()
                     elif obj.remove_py_component(comp) is False:
-                        ctx.end_popup()
                         return False
                     else:
                         _invalidate_component_cache()
-                ctx.end_popup()
+                ctx.close_current_popup()
                 return True
-            ctx.end_popup()
             return False
 
         ip.render_component_context_menu = _render_component_context_menu
@@ -1938,8 +1961,10 @@ class EditorBootstrap:
                     Debug.log_internal(f"Added component {comp_cls.__name__}")
                 else:
                     from Infernux.components import load_and_create_component
+                    adb = engine.get_asset_database()
                     try:
-                        component_instance = load_and_create_component(script_path)
+                        component_instance = load_and_create_component(
+                            script_path, asset_database=adb)
                     except Exception as exc:
                         Debug.log_error(f"Failed to load script '{script_path}': {exc}")
                         return
@@ -2017,12 +2042,128 @@ class EditorBootstrap:
         ip.render_file_preview = _render_file_preview
 
         # ── Material sections ──────────────────────────────────────────
+        _inline_material_state = {
+            "cache": {},
+            "exec_layer": None,
+        }
+
+        def _make_inline_material_panel_adapter():
+            class _Adapter:
+                def __init__(self):
+                    self._inline_material_cache = _inline_material_state["cache"]
+                    self._inline_material_exec_layer = _inline_material_state["exec_layer"]
+
+                def _get_native_engine(self):
+                    return engine.get_native_engine()
+
+                def _ensure_material_file_path(self, material):
+                    return _legacy_inspector_panel.InspectorPanel._ensure_material_file_path(material)
+
+                def _sync_back(self):
+                    _inline_material_state["cache"] = self._inline_material_cache
+                    _inline_material_state["exec_layer"] = self._inline_material_exec_layer
+
+            return _Adapter()
+
         def _render_material_sections(ctx, obj_id):
-            # Material sections are rendered by the Python inspector for
-            # MeshRenderer materials inline editing.  For now, delegate
-            # to the component body rendering — the C++ shell calls
-            # renderMaterialSections after all components are done.
-            pass
+            from Infernux.components.builtin_component import BuiltinComponent
+            from Infernux.engine.ui import inspector_material as mat_ui
+            from Infernux.engine.ui.inspector_utils import render_compact_section_header, render_info_text
+            from Infernux.engine.ui.theme import Theme, ImGuiCol, ImGuiStyleVar
+
+            scene = SceneManager.instance().get_active_scene()
+            obj = scene.find_by_id(obj_id) if scene else None
+            if obj is None:
+                return
+
+            wrapper_cls = BuiltinComponent._builtin_registry.get("MeshRenderer")
+            renderers = []
+            for comp in (obj.get_components() or []):
+                if getattr(comp, 'type_name', '') != "MeshRenderer":
+                    continue
+                renderer = comp
+                if wrapper_cls is not None and not isinstance(renderer, BuiltinComponent):
+                    try:
+                        renderer = wrapper_cls._get_or_create_wrapper(renderer, obj)
+                    except Exception:
+                        renderer = comp
+                renderers.append(renderer)
+
+            if not renderers:
+                return
+
+            ctx.dummy(0, Theme.INSPECTOR_SECTION_GAP * 1.5)
+            ctx.separator()
+            ctx.push_style_color(ImGuiCol.Text, *Theme.TEXT)
+            ctx.label(_t("inspector.material_overrides"))
+            ctx.pop_style_color(1)
+            ctx.separator()
+            if not render_compact_section_header(
+                ctx, "Materials##obj_mat_sections", level="primary", default_open=True
+            ):
+                return
+
+            valid_entries = []
+            owner_name = getattr(obj, 'name', '') or ''
+            multiple_renderers = len(renderers) > 1
+            for renderer in renderers:
+                try:
+                    slot_names = list(renderer.get_material_slot_names() or [])
+                except Exception:
+                    slot_names = []
+                try:
+                    material_guids = list(renderer.get_material_guids() or [])
+                except Exception:
+                    material_guids = []
+                mat_count = getattr(renderer, 'material_count', 0) or 1
+                for slot_idx in range(mat_count):
+                    try:
+                        mat = renderer.get_effective_material(slot_idx)
+                    except Exception:
+                        mat = None
+                    if mat is None:
+                        continue
+                    if slot_idx < len(slot_names) and slot_names[slot_idx]:
+                        label = f"{slot_names[slot_idx]} (Slot {slot_idx})"
+                    else:
+                        label = f"Element {slot_idx}"
+                    is_default = slot_idx >= len(material_guids) or not material_guids[slot_idx]
+                    valid_entries.append({
+                        "label": label,
+                        "material": mat,
+                        "owner_name": owner_name,
+                        "is_default": is_default,
+                        "multiple_renderers": multiple_renderers,
+                    })
+
+            if not valid_entries:
+                return
+
+            ctx.push_style_var_vec2(ImGuiStyleVar.FramePadding, *Theme.INSPECTOR_FRAME_PAD)
+            ctx.push_style_var_vec2(ImGuiStyleVar.ItemSpacing, *Theme.INSPECTOR_ITEM_SPC)
+            for index, entry in enumerate(valid_entries):
+                title = entry["label"]
+                if entry["multiple_renderers"] and entry["owner_name"]:
+                    title = f"{entry['owner_name']} / {title}"
+                if not render_compact_section_header(
+                    ctx, f"{title}##mat_entry_{index}", level="secondary", default_open=True
+                ):
+                    continue
+
+                if entry["is_default"]:
+                    render_info_text(ctx, "Using the renderer's effective default material")
+
+                adapter = _make_inline_material_panel_adapter()
+                ctx.push_id(index)
+                try:
+                    mat_ui.render_inline_material_body(ctx, adapter, entry["material"], cache_key=f"obj_mat_{obj_id}_{index}")
+                finally:
+                    ctx.pop_id()
+                    adapter._sync_back()
+
+                if index != len(valid_entries) - 1:
+                    ctx.separator()
+            ctx.pop_style_var(2)
 
         ip.render_material_sections = _render_material_sections
 
@@ -2068,7 +2209,7 @@ class EditorBootstrap:
                 if sfm and adb:
                     path = adb.get_path_from_guid(guid)
                     if path:
-                        sfm.open_prefab(path)
+                        sfm.open_prefab_mode_with_undo(path)
             elif action == "apply":
                 from Infernux.engine.prefab import apply_prefab_overrides
                 apply_prefab_overrides(obj)
@@ -2102,11 +2243,26 @@ class EditorBootstrap:
             obj = scene.find_by_id(primary) if scene else None
             if obj is None:
                 return
-            from Infernux.engine.undo import UndoManager, AddPyComponentCommand
-            mgr = UndoManager.instance()
-            if mgr:
-                mgr.execute(AddPyComponentCommand(obj.id, script_path))
-                _invalidate_component_cache()
+            from Infernux.components import load_and_create_component
+            from Infernux.debug import Debug
+            adb = engine.get_asset_database()
+            try:
+                instance = load_and_create_component(
+                    script_path, asset_database=adb)
+            except Exception as exc:
+                Debug.log_error(f"Failed to load script '{script_path}': {exc}")
+                return
+            if instance is None:
+                Debug.log_error(f"No InxComponent found in '{script_path}'")
+                return
+            from Infernux.engine.ui.inspector_components import (
+                _record_add_component_compound, _get_component_ids
+            )
+            before_ids = _get_component_ids(obj)
+            obj.add_py_component(instance)
+            _record_add_component_compound(
+                obj, instance.type_name, instance, before_ids, is_py=True)
+            _invalidate_component_cache()
 
         ip.handle_script_drop = _handle_script_drop
 
@@ -2185,7 +2341,7 @@ class EditorBootstrap:
         primary_id = sel.get_primary()
 
         # Record selection change for undo (skip if caused by undo/redo itself)
-        self._record_selection_change(new_ids)
+        self._record_editor_selection_change(new_ids, "")
 
         # Resolve ID → game object for inspector & event bus
         obj = None
@@ -2201,12 +2357,14 @@ class EditorBootstrap:
         self.event_bus.emit(EditorEvent.SELECTION_CHANGED, obj)
 
     def _on_project_selected(self, path):
+        self._record_editor_selection_change([], path or "")
         self._inspector_set_selected_file(path)
         if path:
             self.hierarchy.clear_selection_and_notify()
         self.event_bus.emit(EditorEvent.FILE_SELECTED, path)
 
     def _on_project_panel_empty_clicked(self):
+        self._record_editor_selection_change([], "")
         self.project_panel.clear_selection()
         self.hierarchy.clear_selection_and_notify()
 
@@ -2225,7 +2383,7 @@ class EditorBootstrap:
         primary = sel.get_primary()
 
         # Record selection change for undo
-        self._record_selection_change(new_ids)
+        self._record_editor_selection_change(new_ids, "")
 
         self._set_outline(primary)
 
@@ -2248,7 +2406,7 @@ class EditorBootstrap:
         from Infernux.engine.ui.selection_manager import SelectionManager
         sel = SelectionManager.instance()
         new_ids = sel.get_ids()
-        self._record_selection_change(new_ids)
+        self._record_editor_selection_change(new_ids, "")
 
         self.inspector_panel.set_selected_object_id(primary_obj.id if primary_obj else 0)
         if primary_obj:
@@ -2312,8 +2470,8 @@ class EditorBootstrap:
             )
         return cls._STRUCTURAL_CMD_TYPES
 
-    def _record_selection_change(self, new_ids: list):
-        """Push a SelectionCommand if the selection actually changed.
+    def _record_editor_selection_change(self, new_ids: list, file_path: str):
+        """Push an EditorSelectionCommand when hierarchy/project selection changes.
 
         Skipped when:
         - The change is triggered by undo/redo (``is_executing``).
@@ -2324,12 +2482,14 @@ class EditorBootstrap:
           structural operation.
         """
         import time
-        from Infernux.engine.undo import UndoManager, SelectionCommand
+        from Infernux.engine.undo import UndoManager, EditorSelectionCommand
         mgr = UndoManager.instance()
+        next_file = file_path or ""
         if not mgr or mgr.is_executing:
             self._prev_selection_ids = list(new_ids)
+            self._prev_selected_file = next_file
             return
-        if new_ids == self._prev_selection_ids:
+        if new_ids == self._prev_selection_ids and next_file == self._prev_selected_file:
             return
 
         # Skip if the stack top is a structural command from this frame.
@@ -2338,33 +2498,59 @@ class EditorBootstrap:
             if (isinstance(top, self._get_structural_types())
                     and (time.time() - top.timestamp) < 0.05):
                 self._prev_selection_ids = list(new_ids)
+                self._prev_selected_file = next_file
                 return
 
-        mgr.record(SelectionCommand(
-            self._prev_selection_ids, new_ids,
-            self._apply_selection_undo))
+        mgr.record(EditorSelectionCommand(
+            self._prev_selection_ids, self._prev_selected_file,
+            new_ids, next_file,
+            self._apply_editor_selection_undo))
         self._prev_selection_ids = list(new_ids)
+        self._prev_selected_file = next_file
 
-    def _apply_selection_undo(self, ids: list):
-        """Restore a selection state during undo/redo."""
+    def _record_selection_change(self, new_ids: list):
+        self._record_editor_selection_change(new_ids, "")
+
+    def _apply_editor_selection_undo(self, ids: list, file_path: str):
         from Infernux.engine.ui.selection_manager import SelectionManager
         sel = SelectionManager.instance()
+        file_path = file_path or ""
+
+        if file_path:
+            sel.clear()
+            self._prev_selection_ids = []
+            self._prev_selected_file = file_path
+            self._set_outline(0)
+            self.hierarchy.clear_selection_and_notify()
+            self.project_panel.set_selected_file(file_path)
+            self._inspector_set_selected_file(file_path)
+            self.event_bus.emit(EditorEvent.FILE_SELECTED, file_path)
+            return
+
         sel.set_ids(ids)
         self._prev_selection_ids = list(ids)
+        self._prev_selected_file = ""
 
         primary = sel.get_primary()
         self._set_outline(primary)
+        self.project_panel.clear_selection()
+        self._inspector_set_selected_file("")
 
         if primary:
             from Infernux.lib import SceneManager
             scene = SceneManager.instance().get_active_scene()
             obj = scene.find_by_id(primary) if scene else None
             self.inspector_panel.set_selected_object_id(primary)
-            # Expand hierarchy to reveal without re-triggering selection callback
             if obj:
                 self.hierarchy.expand_to_object(obj.id)
+            self.event_bus.emit(EditorEvent.SELECTION_CHANGED, obj)
         else:
             self.inspector_panel.set_selected_object_id(0)
+            self.event_bus.emit(EditorEvent.SELECTION_CHANGED, None)
+
+    def _apply_selection_undo(self, ids: list):
+        """Restore a selection state during undo/redo."""
+        self._apply_editor_selection_undo(ids, "")
 
 
     def _wire_ui_editor(self):

@@ -1,5 +1,6 @@
 #include "InxView.h"
 
+#include <chrono>
 #include <iostream>
 
 #include <imgui_impl_sdl3.h>
@@ -44,6 +45,26 @@ void InxView::ProcessEvent()
     InputManager::Instance().SetWindow(m_window);
     InputManager::Instance().BeginFrame();
 
+    // ---- Power-save: sleep until an event arrives (or timeout) ----
+    m_idling.isIdling = false;
+    if (m_idling.enableIdling && m_idling.fpsIdle > 0.0f && m_activeFramesRemaining <= 0) {
+        auto beforeWait = std::chrono::steady_clock::now();
+        int waitMs = static_cast<int>(1000.0f / m_idling.fpsIdle);
+        if (waitMs < 1)
+            waitMs = 1;
+
+        // SDL_WaitEventTimeout blocks the thread, waking on any OS event
+        // or after waitMs — this is the core power-save mechanism.
+        SDL_WaitEventTimeout(nullptr, waitMs);
+
+        auto afterWait = std::chrono::steady_clock::now();
+        double waitSec = std::chrono::duration<double>(afterWait - beforeWait).count();
+        double expectedSec = 1.0 / static_cast<double>(m_idling.fpsIdle);
+        m_idling.isIdling = (waitSec > expectedSec * 0.9);
+    }
+
+    bool hadInputEvent = false;
+
     SDL_Event event{};
     while (SDL_PollEvent(&event)) {
         bool forwardToImGui = true;
@@ -64,6 +85,23 @@ void InxView::ProcessEvent()
         // Feed every event into the input manager
         InputManager::Instance().ProcessSDLEvent(event);
 
+        // Detect user interaction to reset idle cooldown
+        switch (event.type) {
+        case SDL_EVENT_MOUSE_MOTION:
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+        case SDL_EVENT_MOUSE_WHEEL:
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP:
+        case SDL_EVENT_TEXT_INPUT:
+        case SDL_EVENT_DROP_FILE:
+        case SDL_EVENT_DROP_TEXT:
+            hadInputEvent = true;
+            break;
+        default:
+            break;
+        }
+
         if (event.type == SDL_EVENT_QUIT) {
             m_closeRequested = true;
             break;
@@ -77,11 +115,20 @@ void InxView::ProcessEvent()
         if (event.type == SDL_EVENT_WINDOW_RESTORED || event.type == SDL_EVENT_WINDOW_EXPOSED ||
             event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
             m_isMinimized = false;
+            hadInputEvent = true; // force full-speed on restore
         }
         if (event.type == SDL_EVENT_WINDOW_OCCLUDED) {
             m_isMinimized = true;
         }
     }
+
+    // Reset idle cooldown when user interacted
+    if (hadInputEvent) {
+        m_activeFramesRemaining = ACTIVE_COOLDOWN_FRAMES;
+    } else if (m_activeFramesRemaining > 0) {
+        --m_activeFramesRemaining;
+    }
+
     SDL_GetWindowSize(m_window, &m_windowWidth, &m_windowHeight);
 }
 

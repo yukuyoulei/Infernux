@@ -786,6 +786,7 @@ void RegisterGUIBindings(py::module_ &m)
         }, py::arg("engine"))
         .def("set_icons_directory", &ProjectPanel::SetIconsDirectory, py::arg("dir"))
         .def("clear_selection", &ProjectPanel::ClearSelection)
+        .def("set_selected_file", &ProjectPanel::SetSelectedFile, py::arg("path"))
         .def("invalidate_material_thumbnail", &ProjectPanel::InvalidateMaterialThumbnail, py::arg("file_path"))
         .def("get_current_path", &ProjectPanel::GetCurrentPath)
         .def("set_current_path", &ProjectPanel::SetCurrentPath, py::arg("path"))
@@ -826,7 +827,8 @@ void RegisterGUIBindings(py::module_ &m)
         .def_readwrite("is_native", &ComponentInfo::isNative)
         .def_readwrite("is_script", &ComponentInfo::isScript)
         .def_readwrite("is_broken", &ComponentInfo::isBroken)
-        .def_readwrite("broken_error", &ComponentInfo::brokenError);
+        .def_readwrite("broken_error", &ComponentInfo::brokenError)
+        .def_readwrite("icon_id", &ComponentInfo::iconId);
 
     py::class_<InspectorPanel::ObjectInfo>(m, "InspectorObjectInfo")
         .def(py::init<>())

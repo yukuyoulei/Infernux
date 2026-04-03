@@ -293,7 +293,23 @@ MaterialRenderData *MaterialPipelineManager::GetOrCreateRenderDataWithReflection
 
         renderData->isValid = true;
 
-        // Cache the pipeline
+        // Cache the pipeline — guard against hash collisions that would
+        // silently overwrite (and leak) a different VkPipeline handle.
+        auto cacheIt = m_pipelineCache.find(pipelineKey);
+        if (cacheIt != m_pipelineCache.end() && cacheIt->second != renderData->pipeline) {
+            // Collision: the slot already holds a different pipeline.
+            // Check if any render data entry still references the old handle.
+            bool oldStillUsed = false;
+            for (const auto &[rdName, rdData] : m_renderDataMap) {
+                if (rdData && rdData->pipeline == cacheIt->second) {
+                    oldStillUsed = true;
+                    break;
+                }
+            }
+            if (!oldStillUsed) {
+                vkDestroyPipeline(m_device, cacheIt->second, nullptr);
+            }
+        }
         m_pipelineCache[pipelineKey] = renderData->pipeline;
     }
 

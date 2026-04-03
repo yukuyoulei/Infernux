@@ -38,6 +38,7 @@ class ProjectPanel : public EditorPanel
     void SetIconsDirectory(const std::string &dir);
 
     void ClearSelection();
+    void SetSelectedFile(const std::string &path);
 
     void InvalidateMaterialThumbnail(const std::string &filePath);
 
@@ -307,6 +308,11 @@ class ProjectPanel : public EditorPanel
     std::string m_renamingPath;
     char m_renameBuf[256] = {};
     bool m_renameFocusRequested = false;
+
+    // Deferred cache invalidation — set by operations that modify the filesystem
+    // mid-render (CommitRename, Delete, Paste, Move) so that the file grid's item
+    // pointer stays valid for the remainder of the frame.
+    bool m_pendingCacheInvalidation = false;
 
     // Clipboard
     std::vector<std::string> m_clipboardPaths;

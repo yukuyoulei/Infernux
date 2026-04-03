@@ -362,8 +362,8 @@ def _render_prefab_body(ctx: InxGUIContext, panel, state: _State):
     def _open_prefab_mode():
         from Infernux.engine.scene_manager import SceneFileManager
         sfm = SceneFileManager.instance()
-        if sfm and hasattr(sfm, "open_prefab_mode"):
-            sfm.open_prefab_mode(state.extra["prefab_path"])
+        if sfm and hasattr(sfm, "open_prefab_mode_with_undo"):
+            sfm.open_prefab_mode_with_undo(state.extra["prefab_path"])
 
     ctx.dummy(0, 4)
     ctx.push_style_color(ImGuiCol.Button, *Theme.PREFAB_BTN_NORMAL)

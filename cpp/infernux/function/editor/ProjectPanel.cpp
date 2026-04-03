@@ -321,6 +321,27 @@ void ProjectPanel::ClearSelection()
     }
 }
 
+void ProjectPanel::SetSelectedFile(const std::string &path)
+{
+    if (path.empty())
+    {
+        ClearSelection();
+        return;
+    }
+
+    std::error_code ec;
+    fs::path selectedPath = fs::u8path(path);
+    fs::path parent = selectedPath.parent_path();
+    if (!parent.empty() && fs::is_directory(parent, ec))
+        m_currentPath = parent.string();
+
+    m_selectedFile = path;
+    m_selectedFiles = {path};
+    m_selectedSet.clear();
+    m_selectedSet.insert(path);
+    NotifySelectionChanged();
+}
+
 void ProjectPanel::InvalidateMaterialThumbnail(const std::string &filePath)
 {
     if (filePath.empty() || !m_renderer)
@@ -1153,7 +1174,7 @@ void ProjectPanel::HandleKeyboardShortcuts(InxGUIContext *ctx)
         {
             if (deleteItems)
                 deleteItems(selected);
-            InvalidateDirCache();
+            m_pendingCacheInvalidation = true;
             m_selectedFile.clear();
             m_selectedFiles.clear();
             m_selectedSet.clear();
@@ -1218,7 +1239,7 @@ void ProjectPanel::CommitRename()
     std::string newPath = doRename(m_renamingPath, newName);
     if (!newPath.empty())
     {
-        InvalidateDirCache();
+        m_pendingCacheInvalidation = true;
         if (m_selectedFile == m_renamingPath)
         {
             m_selectedFile = newPath;
@@ -1374,7 +1395,7 @@ void ProjectPanel::ClipboardPaste()
     if (m_clipboardIsCut)
         m_clipboardPaths.clear();
 
-    InvalidateDirCache();
+    m_pendingCacheInvalidation = true;
     m_selectedFiles = pastedPaths;
     m_selectedFile = pastedPaths.back();
     m_selectedSet.clear();
@@ -1522,7 +1543,7 @@ void ProjectPanel::MoveProjectItemsToFolder(
     if (movedPaths.empty())
         return;
 
-    InvalidateDirCache();
+    m_pendingCacheInvalidation = true;
     m_thumbnailCache.clear();
     m_selectedFiles = movedPaths;
     m_selectedFile = movedPaths.back();
@@ -1559,6 +1580,15 @@ void ProjectPanel::PreRender(InxGUIContext *ctx)
 
 void ProjectPanel::OnRenderContent(InxGUIContext *ctx)
 {
+    // Process any deferred cache invalidation from the previous frame
+    // (CommitRename, Delete, Paste, Move set this flag to avoid invalidating
+    // the items pointer mid-iteration in RenderFileGrid).
+    if (m_pendingCacheInvalidation)
+    {
+        m_pendingCacheInvalidation = false;
+        InvalidateDirCache();
+    }
+
     RenderBreadcrumb(ctx);
     ctx->Separator();
 
@@ -1791,7 +1821,9 @@ void ProjectPanel::RenderFileGrid(InxGUIContext *ctx)
                 ImVec2 rMin = ImGui::GetItemRectMin();
                 ImVec2 rMax = ImGui::GetItemRectMax();
                 drawList->AddImage(ImTextureRef(static_cast<ImTextureID>(displayTexId)), rMin, rMax);
-                if (ImGui::IsItemClicked(0))
+                // Select on mouse RELEASE (not press) so that press-and-drag
+                // initiates drag-drop instead of changing the selection.
+                if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(0) && !hasDragPayload)
                     HandleItemClick(item, ctx);
                 if (ImGui::IsItemClicked(1))
                 {
@@ -1811,7 +1843,8 @@ void ProjectPanel::RenderFileGrid(InxGUIContext *ctx)
                 const char *tag = (item.type != FileItem::Dir)
                                       ? GetFileTypeTag(item.name)
                                       : "[DIR]";
-                if (ctx->Selectable(tag, isSelected, 0, iconSize, iconSize))
+                ctx->Selectable(tag, isSelected, 0, iconSize, iconSize);
+                if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(0) && !hasDragPayload)
                     HandleItemClick(item, ctx);
                 if (ctx->IsItemClicked(1))
                 {

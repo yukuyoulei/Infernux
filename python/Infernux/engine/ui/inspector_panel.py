@@ -30,7 +30,8 @@ from .inspector_utils import (
 from . import inspector_components as comp_ui
 from . import inspector_shader_utils as shader_utils
 from .inspector_components import (
-    _notify_scene_modified, _record_property, _record_add_component,
+    _notify_scene_modified, _record_property, _record_material_slot,
+    _record_add_component,
     _get_component_ids, _record_add_component_compound,
 )
 from .asset_inspector import render_asset_inspector, invalidate as invalidate_asset_inspector
@@ -949,12 +950,17 @@ class InspectorPanel(EditorPanel):
             EditorEventBus.instance().emit("select_asset", path)
 
     def _prefab_open_asset(self, obj):
-        """Open the .prefab file in the asset inspector."""
+        """Open the prefab in prefab editing mode (same as double-clicking in Project panel)."""
         guid = getattr(obj, 'prefab_guid', '')
         path = self._resolve_prefab_path(guid)
         if path:
-            from Infernux.engine.ui.event_bus import EditorEventBus
-            EditorEventBus.instance().emit("open_asset", path)
+            try:
+                from Infernux.engine.scene_manager import SceneFileManager
+                sfm = SceneFileManager.instance()
+                if sfm:
+                    sfm.open_prefab_mode_with_undo(path)
+            except Exception:
+                pass
 
     def _prefab_apply(self, obj):
         """Apply all overrides back to the .prefab file."""
@@ -1028,9 +1034,12 @@ class InspectorPanel(EditorPanel):
 
             def _make_on_clear(s):
                 def _on_mat_clear():
-                    old_mat = renderer.get_material(s)
+                    old_guid = ""
+                    guids = renderer.get_material_guids() if hasattr(renderer, 'get_material_guids') else []
+                    if s < len(guids):
+                        old_guid = guids[s] or ""
                     renderer.set_material(s, "")
-                    _record_property(renderer, f"material_slot_{s}", old_mat, None, f"Clear Material Slot {s}")
+                    _record_material_slot(renderer, s, old_guid, "", f"Clear Material Slot {s}")
                 return _on_mat_clear
 
             self._field_label(ctx, slot_entry["label"], lw)
@@ -1290,9 +1299,13 @@ class InspectorPanel(EditorPanel):
         # Load material by GUID through AssetRegistry (GUID-first)
         material = registry.load_material_by_guid(guid)
         if material:
-            old_mat = renderer.get_material(slot)
+            old_guid = ""
+            if hasattr(renderer, 'get_material_guids'):
+                guids = renderer.get_material_guids()
+                if slot < len(guids):
+                    old_guid = guids[slot] or ""
             renderer.set_material(slot, guid)
-            _record_property(renderer, f"material_slot_{slot}", old_mat, material, f"Set Material Slot {slot}")
+            _record_material_slot(renderer, slot, old_guid, guid, f"Set Material Slot {slot}")
             Debug.log_internal(f"Applied material (GUID={guid[:12]}...) to slot {slot} from: {mat_path}")
         else:
             Debug.log_warning(f"Failed to load material GUID={guid} from: {mat_path}")
@@ -2041,8 +2054,8 @@ class InspectorPanel(EditorPanel):
                 _prefab_instance_readonly = self._is_scene_prefab_instance_readonly(selected_object)
                 _prefab_transform_readonly = self._is_scene_prefab_transform_readonly(selected_object)
 
-        if _prefab_instance_readonly:
-            ctx.begin_disabled(True)
+        # Active, Name, Tag, Layer are scene-instance properties — always editable,
+        # even on prefab instances (they don't come from the prefab asset).
 
         # Active checkbox (no label — matches Unity's checkbox-only style)
         is_active = selected_object.active
@@ -2060,9 +2073,6 @@ class InspectorPanel(EditorPanel):
 
         # --- Tag & Layer dropdowns ---
         self._render_tag_layer_row(ctx, selected_object)
-
-        if _prefab_instance_readonly:
-            ctx.end_disabled()
 
         ctx.dummy(0, Theme.INSPECTOR_TITLE_GAP)
         ctx.separator()

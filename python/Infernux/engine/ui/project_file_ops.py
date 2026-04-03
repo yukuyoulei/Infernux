@@ -171,7 +171,10 @@ def move_path(old_path: str, new_path: str, asset_database=None):
         return None
 
     move_pairs = list(_iter_asset_move_pairs(old_abs, new_abs))
-    shutil.move(old_abs, new_abs)
+    try:
+        shutil.move(old_abs, new_abs)
+    except OSError:
+        return None
 
     for old_file, new_file in move_pairs:
         _notify_asset_moved(old_file, new_file, asset_database)
@@ -217,7 +220,10 @@ def create_folder(current_path: str, folder_name: str):
     if os.path.exists(new_path):
         return False, f"'{folder_name}' already exists"
 
-    os.makedirs(new_path)
+    try:
+        os.makedirs(new_path)
+    except OSError as exc:
+        return False, str(exc)
     return True, ""
 
 
@@ -245,12 +251,18 @@ def create_script(current_path: str, script_name: str, asset_database=None):
         return False, f"'{script_name}' already exists"
 
     content = SCRIPT_TEMPLATE.format(class_name=class_name)
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(content)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except OSError as exc:
+        return False, str(exc)
 
     if asset_database:
-        guid = asset_database.import_asset(file_path)
-        print(f"[ProjectPanel] Registered script: {script_name} -> {guid}")
+        try:
+            guid = asset_database.import_asset(file_path)
+            print(f"[ProjectPanel] Registered script: {script_name} -> {guid}")
+        except Exception as exc:
+            return False, str(exc)
 
     return True, ""
 
@@ -283,12 +295,18 @@ def create_shader(current_path: str, shader_name: str, shader_type: str,
     else:
         content = FRAGMENT_SHADER_TEMPLATE.format(shader_id=shader_id)
 
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(content)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except OSError as exc:
+        return False, str(exc)
 
     if asset_database:
-        guid = asset_database.import_asset(file_path)
-        print(f"[ProjectPanel] Registered shader: {file_name} -> {guid}")
+        try:
+            guid = asset_database.import_asset(file_path)
+            print(f"[ProjectPanel] Registered shader: {file_name} -> {guid}")
+        except Exception as exc:
+            return False, str(exc)
 
     return True, ""
 
@@ -312,12 +330,18 @@ def create_scene(current_path: str, scene_name: str, asset_database=None):
         return False, f"'{file_name}' already exists"
 
     content = SCENE_TEMPLATE.format(scene_name=scene_name)
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(content)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except OSError as exc:
+        return False, str(exc)
 
     if asset_database:
-        guid = asset_database.import_asset(file_path)
-        print(f"[ProjectPanel] Registered scene: {file_name} -> {guid}")
+        try:
+            guid = asset_database.import_asset(file_path)
+            print(f"[ProjectPanel] Registered scene: {file_name} -> {guid}")
+        except Exception as exc:
+            return False, str(exc)
 
     return True, file_path
 
@@ -341,12 +365,18 @@ def create_material(current_path: str, material_name: str, asset_database=None):
         return False, f"'{file_name}' already exists"
 
     content = MATERIAL_TEMPLATE.format(material_name=material_name)
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(content)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except OSError as exc:
+        return False, str(exc)
 
     if asset_database:
-        guid = asset_database.import_asset(file_path)
-        print(f"[ProjectPanel] Registered material: {file_name} -> {guid}")
+        try:
+            guid = asset_database.import_asset(file_path)
+            print(f"[ProjectPanel] Registered material: {file_name} -> {guid}")
+        except Exception as exc:
+            return False, str(exc)
 
     return True, ""
 
@@ -388,11 +418,14 @@ def delete_item(item_path: str, asset_database=None):
         if asset_database:
             asset_database.on_asset_deleted(item_path)
 
-    if is_dir:
-        import shutil
-        shutil.rmtree(item_path)
-    else:
-        os.remove(item_path)
+    try:
+        if is_dir:
+            import shutil
+            shutil.rmtree(item_path)
+        else:
+            os.remove(item_path)
+    except OSError:
+        return
 
     # Invalidate inspector cache so a recreated file won't reuse stale data
     from . import asset_inspector
@@ -422,6 +455,9 @@ def do_rename(old_path: str, new_name: str, asset_database=None):
 
     _, ext = os.path.splitext(old_path)
     if ext.lower() == '.mat' and os.path.isfile(old_path):
-        update_material_name_in_file(old_path, os.path.splitext(safe_name)[0])
+        try:
+            update_material_name_in_file(old_path, os.path.splitext(safe_name)[0])
+        except OSError:
+            return None
 
     return move_path(old_path, new_path, asset_database)

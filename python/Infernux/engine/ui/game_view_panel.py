@@ -239,6 +239,12 @@ class GameViewPanel(EditorPanel):
         self._was_focused = False
         Input.set_game_focused(False)
         self._ui_event_processor.reset()
+        # Disable game rendering when the panel is invisible (e.g. another
+        # tab like UI Editor covers this dock).  Without this, C++ keeps
+        # submitting draw commands against a stale game render target, which
+        # can trigger VK_ERROR_DEVICE_LOST.  Rendering is re-enabled in
+        # on_render_content() once the panel becomes visible again.
+        self._set_game_render_active(False)
 
     def _on_visible_pre(self, ctx):
         focused = (ClosablePanel.get_active_panel_id() == self.window_id) or ctx.is_window_focused(0)

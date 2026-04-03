@@ -68,6 +68,8 @@ MoveGameObjectCommand = _undo_mod.MoveGameObjectCommand
 MaterialJsonCommand = _undo_mod.MaterialJsonCommand
 CompoundCommand = _undo_mod.CompoundCommand
 SelectionCommand = _undo_mod.SelectionCommand
+EditorSelectionCommand = _undo_mod.EditorSelectionCommand
+PrefabModeCommand = _undo_mod.PrefabModeCommand
 InspectorSnapshotCommand = _undo_mod.InspectorSnapshotCommand
 InspectorUndoTracker = _undo_mod.InspectorUndoTracker
 RenderStackFieldCommand = _undo_mod.RenderStackFieldCommand
@@ -218,6 +220,30 @@ class TestSetPropertyCommand:
         cmd.undo()
         assert target.x == 99
 
+    def test_gameobject_target_resolves_live_object(self, monkeypatch):
+        class _GameObject:
+            def __init__(self, object_id, active=True):
+                self.id = object_id
+                self.active = active
+
+        live = _GameObject(7, active=True)
+        stale = _GameObject(7, active=True)
+
+        class _Scene:
+            def find_by_id(self, object_id):
+                return live if object_id == 7 else None
+
+        cmd = SetPropertyCommand(stale, "active", True, False)
+        monkeypatch.setattr(_undo_mod_ref, "_get_active_scene", lambda: _Scene())
+
+        cmd.execute()
+        assert live.active is False
+        assert stale.active is True
+
+        live.active = False
+        cmd.undo()
+        assert live.active is True
+
     def test_resolve_live_ref_finds_python_component(self, monkeypatch):
         """_resolve_live_ref falls back to get_py_components() for Python
         components (RenderStack etc.) that get_component() cannot find."""
@@ -321,6 +347,14 @@ class TestMaterialJsonCommand:
         cmd2 = MaterialJsonCommand(mat, '{"a":1}', '{"a":2}')
         cmd2.timestamp = cmd1.timestamp + 0.1
         assert cmd1.can_merge(cmd2)
+
+    def test_merge_rejected_different_edit_key(self):
+        mat = _FakeComp()
+        mat.guid = "g"
+        cmd1 = MaterialJsonCommand(mat, "{}", '{"a":1}', edit_key="property.a")
+        cmd2 = MaterialJsonCommand(mat, '{"a":1}', '{"b":2}', edit_key="property.b")
+        cmd2.timestamp = cmd1.timestamp + 0.1
+        assert not cmd1.can_merge(cmd2)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -501,6 +535,55 @@ class TestSelectionCommand:
     def test_supports_redo(self):
         cmd = SelectionCommand([], [1], apply_fn=lambda ids: None)
         assert cmd.supports_redo is True
+
+
+class TestEditorSelectionCommand:
+    def test_undo_redo_restore_object_and_file_state(self):
+        applied = []
+        cmd = EditorSelectionCommand(
+            [1], "",
+            [], "Assets/test.mat",
+            apply_fn=lambda ids, path: applied.append((list(ids), path)),
+        )
+        cmd.undo()
+        cmd.redo()
+        assert applied == [([1], ""), ([], "Assets/test.mat")]
+
+
+class TestPrefabModeCommand:
+    def test_enter_undo_redo_call_scene_manager(self, monkeypatch):
+        calls = []
+
+        class _FakeSceneManager:
+            def open_prefab_mode(self, path, preserve_undo_history=False):
+                calls.append(("open", path, preserve_undo_history))
+                return True
+
+            def _do_exit_prefab_mode(self, preserve_undo_history=False):
+                calls.append(("exit", "", preserve_undo_history))
+                return True
+
+        fake_sfm = _FakeSceneManager()
+        scene_manager_mod = types.ModuleType("Infernux.engine.scene_manager")
+
+        class _SceneFileManager:
+            @staticmethod
+            def instance():
+                return fake_sfm
+
+        scene_manager_mod.SceneFileManager = _SceneFileManager
+        monkeypatch.setitem(sys.modules, "Infernux.engine.scene_manager", scene_manager_mod)
+
+        cmd = PrefabModeCommand("Assets/test.prefab", enter_mode=True)
+        cmd.execute()
+        cmd.undo()
+        cmd.redo()
+
+        assert calls == [
+            ("open", "Assets/test.prefab", True),
+            ("exit", "", True),
+            ("open", "Assets/test.prefab", True),
+        ]
 
 
 # ══════════════════════════════════════════════════════════════════════

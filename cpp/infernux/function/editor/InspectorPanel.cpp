@@ -341,17 +341,14 @@ void InspectorPanel::RenderSingleObject(InxGUIContext *ctx, uint64_t objId)
         RenderPrefabHeader(ctx, objId, pinfo);
     }
 
-    if (isPrefabReadonly)
-        ImGui::BeginDisabled();
+    // Active, Name, Tag, Layer are scene-instance properties — always editable,
+    // even on prefab instances (they don't come from the prefab asset).
 
     // Object header: active checkbox + name input
     RenderObjectHeader(ctx, objId, info);
 
     // Tag & Layer
     RenderTagLayerRow(ctx, objId, info);
-
-    if (isPrefabReadonly)
-        ImGui::EndDisabled();
 
     ImGui::Dummy(ImVec2(0, EditorTheme::INSPECTOR_TITLE_GAP));
     ImGui::Separator();
@@ -360,9 +357,10 @@ void InspectorPanel::RenderSingleObject(InxGUIContext *ctx, uint64_t objId)
     // Transform (skip for screen-space UI elements)
     if (!info.hideTransform)
     {
-        uint64_t transformIcon = getComponentIconId ? getComponentIconId("Transform", false) : 0;
+        if (m_cachedTransformIconId == 0 && getComponentIconId)
+            m_cachedTransformIconId = getComponentIconId("Transform", false);
         auto [headerOpen, _unused] = RenderComponentHeader(
-            ctx, "Transform", "transform", transformIcon,
+            ctx, "Transform", "transform", m_cachedTransformIconId,
             /*showEnabled=*/false, /*isEnabled=*/true, /*suffix=*/"",
             /*defaultOpen=*/true);
 
@@ -390,25 +388,26 @@ void InspectorPanel::RenderSingleObject(InxGUIContext *ctx, uint64_t objId)
     {
         ImGui::PushID(static_cast<int>(comp.componentId));
 
-        uint64_t iconId = getComponentIconId
-                              ? getComponentIconId(comp.typeName, comp.isScript)
-                              : 0;
-
         auto [headerOpen, newEnabled] = RenderComponentHeader(
             ctx, comp.typeName,
             "comp_" + std::to_string(comp.componentId),
-            iconId,
+            comp.iconId,
             /*showEnabled=*/true, comp.enabled,
             comp.isScript ? " (Script)" : "",
             /*defaultOpen=*/true);
 
-        // Right-click context menu
+        // Right-click context menu — only call Python when popup is open
         bool componentRemoved = false;
-        if (renderComponentContextMenu)
         {
-            if (renderComponentContextMenu(ctx, objId, comp.typeName, comp.componentId, comp.isNative))
+            const char *ctxPopupId = comp.isScript ? "py_comp_ctx" : "comp_ctx";
+            if (ImGui::BeginPopupContextItem(ctxPopupId))
             {
-                componentRemoved = true;
+                if (renderComponentContextMenu)
+                {
+                    componentRemoved = renderComponentContextMenu(
+                        ctx, objId, comp.typeName, comp.componentId, comp.isNative);
+                }
+                ImGui::EndPopup();
             }
         }
 

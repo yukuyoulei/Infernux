@@ -352,7 +352,7 @@ class SceneFileManager:
         self._show_save_as_dialog()
 
 
-    def open_prefab_mode(self, prefab_path: str):
+    def open_prefab_mode(self, prefab_path: str, preserve_undo_history: bool = False):
         """Enter Prefab Mode, pushing the current scene to memory."""
         if self.is_prefab_mode or not prefab_path or not os.path.isfile(prefab_path):
             return False
@@ -442,11 +442,20 @@ class SceneFileManager:
         self.prefab_mode_path = os.path.abspath(prefab_path)
         self._current_scene_path = prefab_path
         self._dirty = False
-        self._reset_undo_history(scene_is_dirty=False)
+        if not preserve_undo_history:
+            self._reset_undo_history(scene_is_dirty=False)
 
         if self._on_scene_changed:
             self._on_scene_changed()
         return True
+
+    def open_prefab_mode_with_undo(self, prefab_path: str) -> bool:
+        from Infernux.engine.undo import UndoManager, PrefabModeCommand
+        mgr = UndoManager.instance()
+        if mgr and mgr.enabled and not mgr.is_executing:
+            mgr.execute(PrefabModeCommand(prefab_path, enter_mode=True))
+            return True
+        return bool(self.open_prefab_mode(prefab_path))
 
     def exit_prefab_mode(self):
         """Schedule exit from Prefab Mode on a later frame.
@@ -475,12 +484,23 @@ class SceneFileManager:
         )
         return True
 
+    def exit_prefab_mode_with_undo(self) -> bool:
+        if not self.is_prefab_mode:
+            return False
+        from Infernux.engine.undo import UndoManager, PrefabModeCommand
+        mgr = UndoManager.instance()
+        prefab_path = self.prefab_mode_path or ""
+        if mgr and mgr.enabled and not mgr.is_executing:
+            mgr.execute(PrefabModeCommand(prefab_path, enter_mode=False))
+            return True
+        return bool(self._do_exit_prefab_mode())
+
     def _run_deferred_exit_prefab_task(self):
         """DeferredTaskRunner step wrapper for prefab-mode exit."""
         self._deferred_exit_prefab = False
         return self._do_exit_prefab_mode()
 
-    def _do_exit_prefab_mode(self):
+    def _do_exit_prefab_mode(self, preserve_undo_history: bool = False):
         """Internal: perform the actual Prefab Mode exit (called by poll_deferred_load)."""
         if not self.is_prefab_mode:
             return False
@@ -550,7 +570,8 @@ class SceneFileManager:
         self._previous_scene_json = ""
         self._previous_scene_dirty = False
         self._previous_scene_path = None
-        self._reset_undo_history(scene_is_dirty=self._dirty)
+        if not preserve_undo_history:
+            self._reset_undo_history(scene_is_dirty=self._dirty)
 
         if self._on_scene_changed:
             self._on_scene_changed()

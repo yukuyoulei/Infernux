@@ -109,6 +109,8 @@ def _game_object_id_of(target: Any) -> int:
         go = getattr(target, 'game_object', None)
         if go is not None:
             goid = getattr(go, 'id', 0) or 0
+    if not goid:
+        goid = getattr(target, 'id', 0) or 0
     return goid
 
 
@@ -116,6 +118,10 @@ def _comp_type_name_of(target: Any) -> str:
     tn = getattr(target, 'type_name', None)
     if tn:
         return str(tn)
+    if (getattr(target, 'id', 0)
+            and not getattr(target, 'component_id', 0)
+            and getattr(target, 'game_object', None) is None):
+        return "GameObject"
     return type(target).__name__
 
 
@@ -144,6 +150,8 @@ def _resolve_target(stored_ref: Any, game_object_id: int,
     obj = scene.find_by_id(game_object_id)
     if obj is None:
         return None
+    if comp_type_name == "GameObject":
+        return obj
     if comp_type_name == "Transform":
         return getattr(obj, "transform", None)
     try:
@@ -353,7 +361,10 @@ class SetPropertyCommand(UndoCommand):
         return _resolve_target(self._target, self._game_object_id, self._comp_type_name)
 
     def execute(self) -> None:
-        setattr(self._target, self._prop_name, self._new_value)
+        target = self._live()
+        if target is None:
+            target = self._target
+        setattr(target, self._prop_name, self._new_value)
 
     def undo(self) -> None:
         target = self._live()
@@ -453,13 +464,15 @@ class MaterialJsonCommand(UndoCommand):
 
     def __init__(self, material: Any, old_json: str, new_json: str,
                  description: str = "Edit Material",
-                 refresh_callback: Optional[Callable[[Any], None]] = None):
+                 refresh_callback: Optional[Callable[[Any], None]] = None,
+                 edit_key: str = ""):
         super().__init__(description)
         self._material = material
         self._old_json = old_json
         self._new_json = new_json
         self._refresh_callback = refresh_callback
         self._material_id = self._stable_id(material)
+        self._edit_key = edit_key or ""
 
     @staticmethod
     def _stable_id(material: Any) -> int:
@@ -484,6 +497,7 @@ class MaterialJsonCommand(UndoCommand):
         if not isinstance(other, MaterialJsonCommand):
             return False
         return (self._material_id == other._material_id
+                and self._edit_key == other._edit_key
                 and (other.timestamp - self.timestamp) <= self.MERGE_WINDOW)
 
     def merge(self, other: MaterialJsonCommand) -> None:
@@ -507,6 +521,68 @@ class MaterialJsonCommand(UndoCommand):
                     pass
         if self._refresh_callback:
             self._refresh_callback(self._material)
+
+
+class SetMaterialSlotCommand(UndoCommand):
+    """Undo/redo for MeshRenderer material-slot assignment.
+
+    Unlike ``SetPropertyCommand``, this calls ``renderer.set_material(slot, guid)``
+    directly — because MeshRenderer has no pybind11 *property* named
+    ``material_slot_N``, so ``setattr`` would silently create a Python
+    instance attribute instead of touching C++.
+    """
+
+    _is_property_edit = True
+    MERGE_WINDOW: float = 0.3
+
+    def __init__(self, renderer, slot: int, old_guid: str, new_guid: str,
+                 description: str = ""):
+        super().__init__(description or f"Set Material Slot {slot}")
+        self._renderer = renderer
+        self._slot = slot
+        self._old_guid = old_guid or ""
+        self._new_guid = new_guid or ""
+        self._game_object_id: int = _game_object_id_of(renderer)
+        self._comp_type_name: str = _comp_type_name_of(renderer) if self._game_object_id else ""
+
+    def _live(self):
+        return _resolve_target(self._renderer, self._game_object_id, self._comp_type_name)
+
+    def execute(self) -> None:
+        target = self._live() or self._renderer
+        target.set_material(self._slot, self._new_guid)
+
+    def undo(self) -> None:
+        target = self._live()
+        if target is None:
+            from Infernux.debug import Debug
+            Debug.log_error(
+                f"[Undo] SetMaterialSlot({self._slot}).undo: renderer not found "
+                f"(go={self._game_object_id}, type={self._comp_type_name})")
+            return
+        target.set_material(self._slot, self._old_guid)
+
+    def redo(self) -> None:
+        target = self._live()
+        if target is None:
+            from Infernux.debug import Debug
+            Debug.log_error(
+                f"[Undo] SetMaterialSlot({self._slot}).redo: renderer not found "
+                f"(go={self._game_object_id}, type={self._comp_type_name})")
+            return
+        target.set_material(self._slot, self._new_guid)
+
+    def can_merge(self, other: UndoCommand) -> bool:
+        if not isinstance(other, SetMaterialSlotCommand):
+            return False
+        return (self._game_object_id == other._game_object_id
+                and self._comp_type_name == other._comp_type_name
+                and self._slot == other._slot
+                and (other.timestamp - self.timestamp) <= self.MERGE_WINDOW)
+
+    def merge(self, other: SetMaterialSlotCommand) -> None:
+        self._new_guid = other._new_guid
+        self.timestamp = other.timestamp
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1058,6 +1134,68 @@ class SelectionCommand(UndoCommand):
 
     def redo(self) -> None:
         self._apply_fn(self._new_ids)
+
+
+class EditorSelectionCommand(UndoCommand):
+    """Record editor selection state across hierarchy and project panels."""
+
+    marks_dirty: bool = False
+
+    def __init__(self,
+                 old_object_ids: List[int], old_file_path: str,
+                 new_object_ids: List[int], new_file_path: str,
+                 apply_fn: Callable[[List[int], str], None],
+                 description: str = ""):
+        super().__init__(description or "Change Selection")
+        self._old_object_ids = list(old_object_ids)
+        self._old_file_path = old_file_path or ""
+        self._new_object_ids = list(new_object_ids)
+        self._new_file_path = new_file_path or ""
+        self._apply_fn = apply_fn
+
+    def execute(self) -> None:
+        pass
+
+    def undo(self) -> None:
+        self._apply_fn(self._old_object_ids, self._old_file_path)
+
+    def redo(self) -> None:
+        self._apply_fn(self._new_object_ids, self._new_file_path)
+
+
+class PrefabModeCommand(UndoCommand):
+    """Undoable enter/exit transition for Prefab Mode."""
+
+    marks_dirty: bool = False
+
+    def __init__(self, prefab_path: str, enter_mode: bool):
+        action = "Enter Prefab Mode" if enter_mode else "Exit Prefab Mode"
+        super().__init__(action)
+        self._prefab_path = prefab_path or ""
+        self._enter_mode = bool(enter_mode)
+
+    def execute(self) -> None:
+        from Infernux.engine.scene_manager import SceneFileManager
+        sfm = SceneFileManager.instance()
+        if not sfm:
+            return
+        if self._enter_mode:
+            sfm.open_prefab_mode(self._prefab_path, preserve_undo_history=True)
+        else:
+            sfm._do_exit_prefab_mode(preserve_undo_history=True)
+
+    def undo(self) -> None:
+        from Infernux.engine.scene_manager import SceneFileManager
+        sfm = SceneFileManager.instance()
+        if not sfm:
+            return
+        if self._enter_mode:
+            sfm._do_exit_prefab_mode(preserve_undo_history=True)
+        else:
+            sfm.open_prefab_mode(self._prefab_path, preserve_undo_history=True)
+
+    def redo(self) -> None:
+        self.execute()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -145,10 +145,10 @@ InxVkCoreModular::~InxVkCoreModular()
     m_resourceManager.Destroy();
 
     // RenderGraph::Destroy() and MaterialPipelineManager::Shutdown()
-    // already destroyed render passes, pipelines, and descriptor set
-    // layouts that VkPipelineManager was tracking.  Clear the stale
-    // handles so Destroy() doesn't double-free them.
-    m_pipelineManager.ClearTrackedResources();
+    // already destroyed render passes, layouts, and descriptor set
+    // layouts that VkPipelineManager may have tracked. Keep pipeline
+    // tracking alive so any leftovers still get reclaimed here.
+    m_pipelineManager.ClearTrackedNonPipelineResources();
     m_pipelineManager.Destroy();
 
     m_swapchain.Destroy();
