@@ -52,7 +52,10 @@ using invoke_lifecycle_fn = int(__cdecl *)(int64_t handle, int32_t event_id, flo
                                            int32_t error_utf8_capacity);
 using native_log_fn = void(__cdecl *)(int32_t level, const char *message_utf8);
 using find_game_object_by_name_fn = int64_t(__cdecl *)(const char *name_utf8);
+using create_game_object_fn = int64_t(__cdecl *)(const char *name_utf8);
 using create_primitive_fn = int64_t(__cdecl *)(int32_t primitive_type, const char *name_utf8);
+using destroy_game_object_fn = int32_t(__cdecl *)(int64_t game_object_id);
+using instantiate_game_object_fn = int64_t(__cdecl *)(int64_t source_game_object_id, int64_t parent_game_object_id);
 using get_game_object_world_position_fn =
     int32_t(__cdecl *)(int64_t game_object_id, float *x, float *y, float *z);
 using set_game_object_world_position_fn = int32_t(__cdecl *)(int64_t game_object_id, float x, float y, float z);
@@ -80,7 +83,9 @@ using get_transform_child_fn = int64_t(__cdecl *)(int64_t game_object_id, int32_
 using find_transform_child_fn = int64_t(__cdecl *)(int64_t game_object_id, const char *name_utf8);
 using register_native_api_fn =
     int(__cdecl *)(native_log_fn log_fn, find_game_object_by_name_fn find_game_object_fn,
-                   create_primitive_fn create_primitive_fn,
+                   create_game_object_fn create_game_object_fn, create_primitive_fn create_primitive_fn,
+                   destroy_game_object_fn destroy_game_object_fn,
+                   instantiate_game_object_fn instantiate_game_object_fn,
                    get_game_object_world_position_fn get_world_position_fn,
                    set_game_object_world_position_fn set_world_position_fn, get_game_object_name_fn get_name_fn,
                    set_game_object_name_fn set_name_fn, set_game_object_active_fn set_active_fn,
@@ -264,6 +269,17 @@ int64_t __cdecl FindGameObjectByName(const char *nameUtf8)
     return gameObject ? static_cast<int64_t>(gameObject->GetID()) : 0;
 }
 
+int64_t __cdecl CreateGameObject(const char *nameUtf8)
+{
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 0;
+    }
+
+    GameObject *gameObject = scene->CreateGameObject((nameUtf8 && *nameUtf8) ? nameUtf8 : "GameObject");
+    return gameObject ? static_cast<int64_t>(gameObject->GetID()) : 0;
+}
+
 int64_t __cdecl CreatePrimitiveObject(int32_t primitiveType, const char *nameUtf8)
 {
     Scene *scene = SceneManager::Instance().GetActiveScene();
@@ -321,6 +337,54 @@ int64_t __cdecl CreatePrimitiveObject(int32_t primitiveType, const char *nameUtf
     renderer->SetMesh(std::move(vertices), std::move(indices));
     renderer->SetInlineMeshName(objectName);
     return static_cast<int64_t>(gameObject->GetID());
+}
+
+int32_t __cdecl DestroyGameObject(int64_t gameObjectId)
+{
+    if (gameObjectId <= 0) {
+        return 1;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 1;
+    }
+
+    GameObject *gameObject = scene->FindByID(static_cast<uint64_t>(gameObjectId));
+    if (!gameObject) {
+        return 1;
+    }
+
+    scene->DestroyGameObject(gameObject);
+    return 0;
+}
+
+int64_t __cdecl InstantiateGameObject(int64_t sourceGameObjectId, int64_t parentGameObjectId)
+{
+    if (sourceGameObjectId <= 0) {
+        return 0;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 0;
+    }
+
+    GameObject *source = scene->FindByID(static_cast<uint64_t>(sourceGameObjectId));
+    if (!source) {
+        return 0;
+    }
+
+    GameObject *parent = nullptr;
+    if (parentGameObjectId > 0) {
+        parent = scene->FindByID(static_cast<uint64_t>(parentGameObjectId));
+        if (!parent) {
+            return 0;
+        }
+    }
+
+    GameObject *clone = scene->InstantiateGameObject(source, parent);
+    return clone ? static_cast<int64_t>(clone->GetID()) : 0;
 }
 
 int32_t __cdecl GetGameObjectWorldPosition(int64_t gameObjectId, float *x, float *y, float *z)
@@ -1134,7 +1198,8 @@ bool ManagedRuntimeHost::LoadBridgeDelegates()
 
     std::string error;
     if (!InvokeManagedWithError(reinterpret_cast<register_native_api_fn>(m_registerNativeApiFn), error, &NativeLog,
-                                &FindGameObjectByName, &CreatePrimitiveObject, &GetGameObjectWorldPosition, &SetGameObjectWorldPosition,
+                                &FindGameObjectByName, &CreateGameObject, &CreatePrimitiveObject, &DestroyGameObject,
+                                &InstantiateGameObject, &GetGameObjectWorldPosition, &SetGameObjectWorldPosition,
                                 &GetGameObjectName, &SetGameObjectName, &SetGameObjectActive,
                                 &GetGameObjectActiveSelf, &GetGameObjectActiveInHierarchy, &GetGameObjectTag,
                                 &SetGameObjectTag, &CompareGameObjectTag, &GetGameObjectLayer, &SetGameObjectLayer,

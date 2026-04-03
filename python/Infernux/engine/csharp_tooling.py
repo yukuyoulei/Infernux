@@ -121,15 +121,44 @@ namespace Infernux
             return instanceId != 0 ? new GameObject(instanceId) : null;
         }
 
+        public static GameObject? Create(string? name = null)
+        {
+            long instanceId = Managed.NativeApi.CreateGameObject(name);
+            return instanceId != 0 ? new GameObject(instanceId) : null;
+        }
+
         public static GameObject? CreatePrimitive(PrimitiveType type, string? name = null)
         {
             long instanceId = Managed.NativeApi.CreatePrimitive(type, name);
             return instanceId != 0 ? new GameObject(instanceId) : null;
         }
 
+        public static GameObject? Instantiate(GameObject original, Transform? parent = null)
+        {
+            ArgumentNullException.ThrowIfNull(original);
+            long parentId = parent?.gameObject.InstanceId ?? 0;
+            long instanceId = Managed.NativeApi.InstantiateGameObject(original.InstanceId, parentId);
+            return instanceId != 0 ? new GameObject(instanceId) : null;
+        }
+
+        public static void Destroy(GameObject? target)
+        {
+            if (target is null)
+            {
+                return;
+            }
+
+            Managed.NativeApi.DestroyGameObject(target.InstanceId);
+        }
+
         public void SetActive(bool active)
         {
             Managed.NativeApi.SetGameObjectActive(InstanceId, active);
+        }
+
+        public void Destroy()
+        {
+            Managed.NativeApi.DestroyGameObject(InstanceId);
         }
 
         public bool CompareTag(string tag)
@@ -282,7 +311,16 @@ namespace Infernux.Managed
         private delegate long FindGameObjectByNameDelegate(IntPtr nameUtf8);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long CreateGameObjectDelegate(IntPtr nameUtf8);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate long CreatePrimitiveDelegate(int primitiveType, IntPtr nameUtf8);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int DestroyGameObjectDelegate(long gameObjectId);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long InstantiateGameObjectDelegate(long sourceGameObjectId, long parentGameObjectId);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int GetWorldPositionDelegate(long gameObjectId, out float x, out float y, out float z);
@@ -352,7 +390,10 @@ namespace Infernux.Managed
 
         private static NativeLogDelegate? _log;
         private static FindGameObjectByNameDelegate? _findGameObjectByName;
+        private static CreateGameObjectDelegate? _createGameObject;
         private static CreatePrimitiveDelegate? _createPrimitive;
+        private static DestroyGameObjectDelegate? _destroyGameObject;
+        private static InstantiateGameObjectDelegate? _instantiateGameObject;
         private static GetWorldPositionDelegate? _getWorldPosition;
         private static SetWorldPositionDelegate? _setWorldPosition;
         private static GetGameObjectNameDelegate? _getGameObjectName;
@@ -379,7 +420,10 @@ namespace Infernux.Managed
         public static void Register(
             IntPtr logFn,
             IntPtr findGameObjectFn,
+            IntPtr createGameObjectFn,
             IntPtr createPrimitiveFn,
+            IntPtr destroyGameObjectFn,
+            IntPtr instantiateGameObjectFn,
             IntPtr getWorldPositionFn,
             IntPtr setWorldPositionFn,
             IntPtr getGameObjectNameFn,
@@ -403,7 +447,9 @@ namespace Infernux.Managed
             IntPtr getChildFn,
             IntPtr findChildFn)
         {
-            if (logFn == IntPtr.Zero || findGameObjectFn == IntPtr.Zero || createPrimitiveFn == IntPtr.Zero ||
+            if (logFn == IntPtr.Zero || findGameObjectFn == IntPtr.Zero || createGameObjectFn == IntPtr.Zero ||
+                createPrimitiveFn == IntPtr.Zero || destroyGameObjectFn == IntPtr.Zero ||
+                instantiateGameObjectFn == IntPtr.Zero ||
                 getWorldPositionFn == IntPtr.Zero ||
                 setWorldPositionFn == IntPtr.Zero || getGameObjectNameFn == IntPtr.Zero ||
                 setGameObjectNameFn == IntPtr.Zero || setGameObjectActiveFn == IntPtr.Zero ||
@@ -421,7 +467,11 @@ namespace Infernux.Managed
 
             _log = Marshal.GetDelegateForFunctionPointer<NativeLogDelegate>(logFn);
             _findGameObjectByName = Marshal.GetDelegateForFunctionPointer<FindGameObjectByNameDelegate>(findGameObjectFn);
+            _createGameObject = Marshal.GetDelegateForFunctionPointer<CreateGameObjectDelegate>(createGameObjectFn);
             _createPrimitive = Marshal.GetDelegateForFunctionPointer<CreatePrimitiveDelegate>(createPrimitiveFn);
+            _destroyGameObject = Marshal.GetDelegateForFunctionPointer<DestroyGameObjectDelegate>(destroyGameObjectFn);
+            _instantiateGameObject =
+                Marshal.GetDelegateForFunctionPointer<InstantiateGameObjectDelegate>(instantiateGameObjectFn);
             _getWorldPosition = Marshal.GetDelegateForFunctionPointer<GetWorldPositionDelegate>(getWorldPositionFn);
             _setWorldPosition = Marshal.GetDelegateForFunctionPointer<SetWorldPositionDelegate>(setWorldPositionFn);
             _getGameObjectName = Marshal.GetDelegateForFunctionPointer<GetGameObjectNameDelegate>(getGameObjectNameFn);
@@ -504,6 +554,43 @@ namespace Infernux.Managed
                     Marshal.FreeCoTaskMem(namePtr);
                 }
             }
+        }
+
+        public static long CreateGameObject(string? name)
+        {
+            CreateGameObjectDelegate callback =
+                _createGameObject ?? throw new InvalidOperationException("Native GameObject.Create API is not registered.");
+            IntPtr namePtr = IntPtr.Zero;
+            try
+            {
+                namePtr = Marshal.StringToCoTaskMemUTF8(name ?? string.Empty);
+                return callback(namePtr);
+            }
+            finally
+            {
+                if (namePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(namePtr);
+                }
+            }
+        }
+
+        public static void DestroyGameObject(long gameObjectId)
+        {
+            DestroyGameObjectDelegate callback =
+                _destroyGameObject ?? throw new InvalidOperationException("Native GameObject.Destroy API is not registered.");
+            if (callback(gameObjectId) != 0)
+            {
+                throw new InvalidOperationException($"Failed to destroy GameObject {gameObjectId}.");
+            }
+        }
+
+        public static long InstantiateGameObject(long sourceGameObjectId, long parentGameObjectId)
+        {
+            InstantiateGameObjectDelegate callback =
+                _instantiateGameObject ??
+                throw new InvalidOperationException("Native GameObject.Instantiate API is not registered.");
+            return callback(sourceGameObjectId, parentGameObjectId);
         }
 
         public static Vector3 GetWorldPosition(long gameObjectId)
@@ -921,7 +1008,10 @@ namespace Infernux.Managed
         public static int RegisterNativeApi(
             IntPtr logFn,
             IntPtr findGameObjectFn,
+            IntPtr createGameObjectFn,
             IntPtr createPrimitiveFn,
+            IntPtr destroyGameObjectFn,
+            IntPtr instantiateGameObjectFn,
             IntPtr getWorldPositionFn,
             IntPtr setWorldPositionFn,
             IntPtr getGameObjectNameFn,
@@ -952,7 +1042,10 @@ namespace Infernux.Managed
                 NativeApi.Register(
                     logFn,
                     findGameObjectFn,
+                    createGameObjectFn,
                     createPrimitiveFn,
+                    destroyGameObjectFn,
+                    instantiateGameObjectFn,
                     getWorldPositionFn,
                     setWorldPositionFn,
                     getGameObjectNameFn,
