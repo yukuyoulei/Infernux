@@ -5,23 +5,23 @@
 <h1 align="center">Infernux</h1>
 
 <p align="center">
-  <strong>Open-source game engine with a C++17 / Vulkan runtime and a Python production layer.</strong>
+  <strong>Windows-first open-source game engine with a C++17 / Vulkan runtime, a Python editor layer, and an in-progress C# gameplay runtime.</strong>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/version-0.1.1-orange.svg" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform" />
-  <img src="https://img.shields.io/badge/python-3.12+-brightgreen.svg" alt="Python" />
+  <img src="https://img.shields.io/badge/python-3.12%2B-brightgreen.svg" alt="Python" />
+  <img src="https://img.shields.io/badge/.NET-8-blue.svg" alt=".NET 8" />
   <img src="https://img.shields.io/badge/C%2B%2B-17-blue.svg" alt="C++ 17" />
   <img src="https://img.shields.io/badge/graphics-Vulkan-red.svg" alt="Vulkan" />
 </p>
 
 <p align="center">
-  <a href="README-zh.md">中文文档</a> ·
-  <a href="https://chenlizheme.github.io/Infernux/">Website</a> ·
-  <a href="https://chenlizheme.github.io/Infernux/wiki.html">Docs</a> ·
-  <a href="#quick-start">Quick Start</a>
+  <a href="README-zh.md">Chinese README</a> |
+  <a href="https://chenlizheme.github.io/Infernux/">Website</a> |
+  <a href="https://chenlizheme.github.io/Infernux/wiki.html">Docs</a>
 </p>
 
 ---
@@ -30,146 +30,290 @@
 
 Infernux is a from-scratch engine for teams that want to own the runtime, the tools, and the iteration loop.
 
-The project combines:
+Today the project is best described as:
 
-- a native C++17 / Vulkan runtime for rendering, scene systems, platform integration, and physics
-- a Python layer for gameplay, editor tooling, content workflows, and render-stack authoring
-- an MIT license with no royalties, runtime fees, or closed engine surface
+- a native C++17 / Vulkan engine runtime
+- a Python-based editor, tooling, and asset workflow layer
+- a Windows-only native CLR host for managed C# gameplay scripts
 
-The goal is straightforward: keep the hot path native, keep the authoring loop fast, and keep the architecture readable enough that you can extend it without fighting hidden engine policy.
+The hot path stays native, the editor stays scriptable, and the gameplay surface is gradually moving from Python gameplay scripts toward C# runtime components.
 
-## Why Infernux
+## Current State
 
-- Scriptable rendering: the render pipeline is exposed through RenderGraph and RenderStack APIs instead of being locked behind editor-only configuration.
-- Python where iteration matters: gameplay, editor extensions, asset workflows, and automation all live in the same scripting ecosystem.
-- Repository-first development: the codebase is intended to be inspectable and modifiable, not treated as a black box.
-- Honest scope: the current release is a Windows technical preview with a working runtime/editor core, not a finished multi-platform engine.
+The repository is a Windows technical preview with real engine/editor functionality, not a finished multi-platform product.
 
-## Current Status
+What is already working:
 
-The project already has a usable foundation for real engine work:
+- Vulkan forward and deferred rendering, PBR, shadows, post-processing, RenderGraph, and RenderStack
+- Jolt physics, scene hierarchy, prefabs, GUID-based assets, and dependency tracking
+- Built-in editor panels including Hierarchy, Inspector, Scene View, Game View, Project, Console, and UI tooling
+- Python editor/tooling layer for workflows, automation, and authoring
+- Native CLR hosting on Windows through `hostfxr`
+- C# runtime component lifecycle and a growing engine bridge
 
-- Vulkan forward and deferred rendering, PBR, cascaded shadows, MSAA, shader reflection, and post-processing.
-- RenderGraph and RenderStack systems that can be authored from Python.
-- Jolt physics integration with rigidbodies, colliders, queries, callbacks, and layer filtering.
-- SDL3-based audio, scene/resource management, GUID-based assets, and dependency tracking.
-- A built-in editor with Hierarchy, Inspector, Scene View, Game View, Project, Console, UI editor, build settings, and play-mode isolation.
-- Python-side component lifecycle, coroutine utilities, prefab workflows, serialized fields, and hot-reload support.
-- Game UI primitives including Canvas, Text, Image, Button, and event routing.
-- Hub packaging flows for both a standalone bundle and a Windows installer.
+What is still in progress:
 
-Near-term roadmap priorities are animation, advanced UI controls, more onboarding material, and a stronger content pipeline.
+- broader C# gameplay API coverage
+- more docs and onboarding material
+- animation and deeper content-pipeline work
 
 ## Architecture
 
-The engine is split by responsibility rather than ideology.
-
 | Layer | Responsibility |
 |:------|:---------------|
-| C++17 / Vulkan | Renderer, resource ownership, physics, scene systems, platform services |
-| pybind11 bridge | Native bindings exposed to Python |
-| Python | Gameplay, editor logic, tooling, automation, render authoring |
+| C++17 / Vulkan | Renderer, scene systems, physics, resources, platform integration |
+| pybind11 bridge | Native bindings for the Python/editor layer |
+| Python | Editor UI, tooling, workflows, packaging, asset automation |
+| Native CLR host | Loads and drives managed gameplay assemblies on Windows |
+| C# | Runtime gameplay components and managed engine-facing APIs |
 
-This division keeps performance-sensitive systems native while leaving day-to-day production code in a language that is faster to iterate on and easier to integrate with external tooling.
+Important boundary:
 
-## Quick Start
+- Python is still the production/editor layer.
+- C# is currently the managed gameplay runtime layer.
+- Managed runtime hosting is Windows-only right now.
 
-### Prerequisites
+## C# Gameplay Support
+
+The engine now generates a managed gameplay project at:
+
+- `Scripts/Infernux.GameScripts.csproj`
+
+and runtime stubs at:
+
+- `Scripts/Generated/Infernux.RuntimeStubs.cs`
+
+User gameplay scripts are compiled from:
+
+- `Assets/**/*.cs`
+
+The generated project targets `net8.0`, and the native runtime loads the resulting assembly through `hostfxr`.
+
+### C# API currently bridged
+
+User gameplay scripts currently inherit from `InxComponent`.
+
+`InxComponent`
+
+- context properties: `gameObject`, `transform`, `Enabled`, `ExecutionOrder`, `ScriptGuid`
+- lifecycle methods: `Awake`, `OnEnable`, `Start`, `Update(float deltaTime)`, `FixedUpdate(float fixedDeltaTime)`, `LateUpdate(float deltaTime)`, `OnDisable`, `OnDestroy`, `OnValidate`, `Reset`
+
+`GameObject`
+
+- `Find(string)`
+- `Create(string? name = null)`
+- `CreatePrimitive(PrimitiveType, string? name = null)`
+- `Instantiate(GameObject, Transform? parent = null)`
+- `Destroy(GameObject?)`
+- `Destroy()`
+- `name`
+- `tag`
+- `layer`
+- `activeSelf`
+- `activeInHierarchy`
+- `SetActive(bool)`
+- `CompareTag(string)`
+
+`Transform`
+
+- `position`
+- `localPosition`
+- `localScale`
+- `parent`
+- `childCount`
+- `Translate(Vector3)`
+- `SetParent(Transform? parent, bool worldPositionStays = true)`
+- `GetChild(int)`
+- `Find(string)`
+
+`Debug`
+
+- `Log`
+- `LogWarning`
+- `LogError`
+
+### Example
+
+```csharp
+using Infernux;
+
+public sealed class NewComponent : InxComponent
+{
+    public override void Start()
+    {
+        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube, "RuntimeCube");
+        if (cube != null)
+        {
+            cube.transform.position = new Vector3(0, 1, 0);
+            cube.transform.localScale = new Vector3(2, 2, 2);
+
+            var clone = GameObject.Instantiate(cube);
+            if (clone != null)
+            {
+                clone.transform.position = new Vector3(2, 1, 0);
+            }
+
+            Debug.Log($"Created {cube.name}");
+        }
+    }
+}
+```
+
+## Requirements
 
 | Dependency | Version |
 |:-----------|:--------|
 | Windows | 10 / 11 (64-bit) |
-| Python | 3.12+ |
-| Vulkan SDK | 1.3+ |
+| Visual Studio | 2022 with MSVC v143 |
 | CMake | 3.22+ |
-| Visual Studio | 2022 (MSVC v143) |
-| pybind11 | 2.11+ |
+| Python | 3.12+ x64 |
+| Vulkan SDK | 1.3+ |
+| .NET | .NET 8 SDK or runtime |
+| Git | Latest Git for Windows |
 
-Use any Python 3.12 environment you prefer. The examples below use Conda because that is the most common workflow in this repository.
+Notes:
 
-### Clone the repository
+- The native CLR host searches for `hostfxr.dll` from installed .NET locations.
+- The Windows build helper defaults to `PythonSpec 3.12`, but `3.13` also works if installed and selected explicitly.
 
-```bash
+## Quick Start
+
+### Clone
+
+```powershell
 git clone --recurse-submodules https://github.com/ChenlizheMe/Infernux.git
 cd Infernux
 ```
 
 If you already cloned without submodules:
 
-```bash
+```powershell
 git submodule update --init --recursive
 ```
 
-### Build the engine
+### Recommended Windows build
 
-```bash
-conda create -n infengine python=3.12 -y
-conda activate infengine
+Use the repository helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\dev\build_engine_windows.ps1 -PythonSpec 3.12
+```
+
+Useful options:
+
+- `-Preset debug`
+- `-SkipManagedBuild`
+- `-RunLauncher`
+
+What this script does:
+
+- validates Python, CMake, Vulkan SDK, and Git
+- initializes submodules
+- installs Python requirements into `.venv`
+- configures and builds the native engine
+- packages and installs the Python module into the local environment
+- optionally builds a managed gameplay project if one exists in the repo root
+
+### Launch the editor in development mode
+
+```powershell
+.\.venv\Scripts\python.exe .\packaging\launcher.py
+```
+
+## Managed Project Workflow
+
+For an actual game project, the engine generates:
+
+- `Scripts/Infernux.GameScripts.csproj`
+- `Scripts/Generated/Infernux.RuntimeStubs.cs`
+
+Build the managed gameplay assembly with:
+
+```powershell
+dotnet build 'E:\Path\To\YourProject\Scripts\Infernux.GameScripts.csproj' -c Debug
+```
+
+If the build fails because `Infernux.GameScripts.dll` is locked, close the running editor or build to a temporary output directory:
+
+```powershell
+dotnet build 'E:\Path\To\YourProject\Scripts\Infernux.GameScripts.csproj' -c Debug -p:OutDir=E:\Path\To\YourProject\Scripts\bin\DebugVerify\
+```
+
+The native host looks for:
+
+- `Data/Managed/Infernux.GameScripts.dll`
+- `Scripts/bin/Debug/net8.0/Infernux.GameScripts.dll`
+- `Scripts/bin/Release/net8.0/Infernux.GameScripts.dll`
+
+with the matching `.runtimeconfig.json`.
+
+## Manual Native Build
+
+If you prefer not to use the PowerShell helper:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cmake --preset release
+cmake --preset release -DPython3_EXECUTABLE="%CD%\\.venv\\Scripts\\python.exe"
 cmake --build --preset release
 ```
 
-This builds the native module, copies the required runtime dependencies, and installs the Python package into the active environment so `import Infernux` works directly from the workspace.
+The helper script is still the recommended path on Windows because it handles tool detection and packaging details for you.
 
-### Launch the Hub in development mode
+## Tests
 
-```bash
-conda activate infengine
-python packaging/launcher.py
+Python tests:
+
+```powershell
+cd python
+python -m pytest test -v
 ```
 
-Development mode uses your current Python environment and local build outputs. It does not install the Hub's private runtime.
+Managed gameplay smoke tests are currently best validated by:
 
-### Run tests
+- building the generated `Infernux.GameScripts.csproj`
+- launching the editor
+- entering Play Mode with a C# component attached
 
-```bash
-conda activate infengine
-cd python
-python -m pytest test/ -v
+## Packaging
+
+Portable Hub bundle:
+
+```powershell
+cmake --build --preset packaging
+```
+
+Windows installer:
+
+```powershell
+cmake --build --preset packaging-installer
 ```
 
 ## Documentation
 
-- Website: <https://chenlizheme.github.io/Infernux/>
-- Documentation hub: <https://chenlizheme.github.io/Infernux/wiki.html>
-- API reference: generated from the Python package and published as static HTML under `docs/wiki/site/`
+- Website: [https://chenlizheme.github.io/Infernux/](https://chenlizheme.github.io/Infernux/)
+- Docs hub: [https://chenlizheme.github.io/Infernux/wiki.html](https://chenlizheme.github.io/Infernux/wiki.html)
 
-To regenerate the API Markdown and HTML site locally:
+Regenerate docs locally:
 
-```bash
-conda activate infengine
+```powershell
 python docs/wiki/generate_api_docs.py
 python -m mkdocs build --clean -f docs/wiki/mkdocs.yml
 ```
 
-The equivalent CMake targets are `generate_api_docs` and `build_wiki_html`.
-
-## Packaging
-
-There are two supported Hub distribution paths.
-
-### Standalone bundle
-
-```bash
-cmake --build --preset packaging
-```
-
-This produces the portable PyInstaller output under `dist/Infernux Hub/`. It is useful for local validation and developer-facing distribution.
-
-### Windows installer
-
-```bash
-cmake --build --preset packaging-installer
-```
-
-This produces the graphical Windows installer for the Hub. The installer flow downloads and stages the matching Python 3.12 runtime for the host architecture, then provisions project runtimes from that private Hub-managed base.
-
 ## Contributing
 
-Bug reports, feature requests, and workflow feedback are useful right now. If you are filing an issue, include the engine version, environment details, reproduction steps, and whether the problem is in the native runtime, the Python layer, or packaging.
+Useful issues and PRs right now are the ones that improve:
 
-Contribution and support policies live in the repository community files:
+- C# gameplay bridge coverage
+- editor stability and workflow polish
+- docs and onboarding
+- content pipeline robustness
+
+Before sending broad architectural changes, open an issue or discussion first.
+
+Related community files:
 
 - `CONTRIBUTING.md`
 - `SECURITY.md`
@@ -177,89 +321,4 @@ Contribution and support policies live in the repository community files:
 
 ## License
 
-Infernux is released under the MIT License. See `LICENSE` for details.
-- installs the selected Infernux version into each project's runtime
-
-This means each project owns a complete, self-contained Python copy. It does not share a runtime with other projects.
-
----
-
-## Architecture
-
-```text
-Python authoring layer
-  -> editor panels, components, RenderGraph authoring, tooling, project workflows
-  -> pybind11 binding seam
-C++ engine core
-  -> renderer, scene, resources, physics, audio, platform services
-External stack
-  -> Vulkan, SDL3, Jolt, ImGui, Assimp, GLM, glslang, VMA
-```
-
-### Practical flow
-
-1. Author gameplay or rendering logic in Python.
-2. Bind that logic to editor-visible data and scene objects.
-3. Describe render passes through the RenderGraph API.
-4. The native backend handles scheduling, memory, and GPU execution.
-
-This is the main architectural promise of the engine: **high-level iteration without surrendering low-level ownership**.
-
----
-
-## Status
-
-### Working
-
-- Vulkan rendering (forward + deferred), PBR, shadows, 8 post-processing effects
-- Python scripting with hot-reload and editor integration
-- Full editor (12 panels, gizmos, undo/redo, play mode)
-- Jolt physics (rigidbodies, colliders, raycasting, collision layers)
-- SDL3 audio with 3D spatialization
-- Asset pipeline (GUID-based AssetDatabase, .meta files, dependency graph)
-- Prefab system (save/instantiate/override tracking)
-- Game UI system (Canvas, Text, Image, Button, event system)
-- Standalone game build via Nuitka
-- Hub launcher and Windows installer
-
-### In progress
-
-- Animation system (skeletal animation, state machines)
-- Advanced UI controls (ScrollView, Slider, layout groups)
-- Documentation, tutorials, and example projects
-
----
-
-## Roadmap
-
-| Version | Focus |
-|:--------|:------|
-| v0.1 | **Current** — Rendering, physics, audio, scripting, editor, prefabs, game UI, standalone build. Usable for basic games without animation |
-| v0.2 | Animation system, advanced UI controls (ScrollView, Slider, layout), asset rename safety |
-| v0.3 | Particles, terrain, model/content pipeline improvements |
-| v0.4 | Networking foundations |
-| v1.0 | Documentation, examples, production readiness |
-
----
-
-## Contributing
-
-1. Read the README and the docs site first.
-2. Check the roadmap to understand current priorities.
-3. Open an issue or discussion before pushing broad architectural changes.
-4. Submit focused pull requests with a clear engineering goal.
-
-This repository benefits most from contributions that preserve the core idea of the project: explicit architecture, short iteration loops, and a stack the team actually owns.
-
----
-
-## Contact
-
-- Email: [chenlizheme@outlook.com](mailto:chenlizheme@outlook.com)
-- GitHub: [https://github.com/ChenlizheMe/Infernux](https://github.com/ChenlizheMe/Infernux)
-
----
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
+Infernux is released under the MIT License. See [LICENSE](LICENSE) for details.
