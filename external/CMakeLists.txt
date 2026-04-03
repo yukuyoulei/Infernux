@@ -20,7 +20,13 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+if(APPLE OR UNIX)
+    # Use system zlib on macOS/Linux — assimp's bundled old zlib has
+    # compilation issues with modern Apple Clang system headers.
+    set(ASSIMP_BUILD_ZLIB OFF CACHE BOOL "" FORCE)
+else()
+    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+endif()
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 
 # glslang configuration
