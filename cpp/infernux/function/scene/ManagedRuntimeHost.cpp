@@ -104,7 +104,6 @@ using register_native_api_fn =
                    int32_t error_utf8_capacity);
 
 constexpr int32_t kHostFxrDelegateLoadAssemblyAndGetFunctionPointer = 5;
-constexpr const wchar_t *kBridgeTypeName = L"Infernux.Managed.ManagedComponentBridge, Infernux.GameScripts";
 const wchar_t *const kUnmanagedCallersOnlyMethod = reinterpret_cast<const wchar_t *>(static_cast<intptr_t>(-1));
 
 std::wstring ToWide(const std::string &utf8)
@@ -158,13 +157,66 @@ bool TrySetManagedArtifactsFromRoot(const std::filesystem::path &root, std::stri
 {
     const std::filesystem::path assembly = root / "Infernux.GameScripts.dll";
     const std::filesystem::path runtimeConfig = root / "Infernux.GameScripts.runtimeconfig.json";
-    if (!std::filesystem::is_regular_file(assembly) || !std::filesystem::is_regular_file(runtimeConfig)) {
+    if (std::filesystem::is_regular_file(assembly) && std::filesystem::is_regular_file(runtimeConfig)) {
+        assemblyPathOut = FromFsPath(assembly);
+        runtimeConfigPathOut = FromFsPath(runtimeConfig);
+        return true;
+    }
+
+    std::vector<std::filesystem::path> runtimeConfigs;
+    if (!std::filesystem::is_directory(root)) {
         return false;
     }
 
-    assemblyPathOut = FromFsPath(assembly);
-    runtimeConfigPathOut = FromFsPath(runtimeConfig);
+    for (const auto &entry : std::filesystem::directory_iterator(root)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::filesystem::path candidate = entry.path();
+        const std::string filename = candidate.filename().string();
+        if (filename.size() <= std::strlen(".runtimeconfig.json") ||
+            filename.substr(filename.size() - std::strlen(".runtimeconfig.json")) != ".runtimeconfig.json") {
+            continue;
+        }
+
+        const std::string assemblyStem = filename.substr(0, filename.size() - std::strlen(".runtimeconfig.json"));
+        if (std::filesystem::is_regular_file(root / (assemblyStem + ".dll"))) {
+            runtimeConfigs.push_back(candidate);
+        }
+    }
+
+    if (runtimeConfigs.empty()) {
+        return false;
+    }
+
+    std::sort(runtimeConfigs.begin(), runtimeConfigs.end(),
+              [](const std::filesystem::path &lhs, const std::filesystem::path &rhs) {
+                  std::error_code leftEc;
+                  std::error_code rightEc;
+                  const auto leftTime = std::filesystem::last_write_time(lhs, leftEc);
+                  const auto rightTime = std::filesystem::last_write_time(rhs, rightEc);
+                  if (!leftEc && !rightEc && leftTime != rightTime) {
+                      return leftTime > rightTime;
+                  }
+                  return lhs.filename().native() > rhs.filename().native();
+              });
+
+    const std::filesystem::path selectedRuntimeConfig = runtimeConfigs.front();
+    const std::string runtimeFilename = selectedRuntimeConfig.filename().string();
+    const std::string assemblyStem =
+        runtimeFilename.substr(0, runtimeFilename.size() - std::strlen(".runtimeconfig.json"));
+    const std::filesystem::path selectedAssembly = root / (assemblyStem + ".dll");
+    assemblyPathOut = FromFsPath(selectedAssembly);
+    runtimeConfigPathOut = FromFsPath(selectedRuntimeConfig);
     return true;
+}
+
+std::wstring BuildBridgeTypeName(const std::string &assemblyPath)
+{
+    const std::filesystem::path assemblyFsPath = ToFsPath(assemblyPath);
+    const std::wstring assemblyName = assemblyFsPath.stem().wstring();
+    return L"Infernux.Managed.ManagedComponentBridge, " + assemblyName;
 }
 
 bool InvokeManaged(create_component_fn fn, const std::string &typeName, int64_t &handle, std::string &error)
@@ -976,6 +1028,77 @@ bool ManagedRuntimeHost::IsRuntimeAvailable()
     return EnsureInitialized();
 }
 
+bool ManagedRuntimeHost::ReloadScriptsIfChanged()
+{
+    if (!IsSupportedPlatform()) {
+        SetError("Managed C# runtime hosting is currently supported only on Windows.");
+        return false;
+    }
+    if (!IsConfigured()) {
+        SetError("Managed runtime host is not configured with a project path.");
+        return false;
+    }
+
+    std::string nextAssemblyPath;
+    std::string nextRuntimeConfigPath;
+    const std::string currentAssemblyPath = m_assemblyPath;
+    const std::string currentRuntimeConfigPath = m_runtimeConfigPath;
+    m_assemblyPath.clear();
+    m_runtimeConfigPath.clear();
+    const bool resolved = ResolveManagedArtifacts();
+    nextAssemblyPath = m_assemblyPath;
+    nextRuntimeConfigPath = m_runtimeConfigPath;
+    m_assemblyPath = currentAssemblyPath;
+    m_runtimeConfigPath = currentRuntimeConfigPath;
+    if (!resolved) {
+        return false;
+    }
+
+    if (!m_runtimeInitialized) {
+        m_assemblyPath = nextAssemblyPath;
+        m_runtimeConfigPath = nextRuntimeConfigPath;
+        return EnsureInitialized();
+    }
+
+    if (nextAssemblyPath == m_assemblyPath && nextRuntimeConfigPath == m_runtimeConfigPath) {
+        return true;
+    }
+
+    void *previousCreateComponentFn = m_createComponentFn;
+    void *previousDestroyComponentFn = m_destroyComponentFn;
+    void *previousUpdateContextFn = m_updateContextFn;
+    void *previousInvokeLifecycleFn = m_invokeLifecycleFn;
+    void *previousRegisterNativeApiFn = m_registerNativeApiFn;
+    const std::string previousError = m_lastError;
+
+    m_assemblyPath = nextAssemblyPath;
+    m_runtimeConfigPath = nextRuntimeConfigPath;
+    m_createComponentFn = nullptr;
+    m_destroyComponentFn = nullptr;
+    m_updateContextFn = nullptr;
+    m_invokeLifecycleFn = nullptr;
+    m_registerNativeApiFn = nullptr;
+    m_lastError.clear();
+
+    if (!LoadBridgeDelegates()) {
+        m_assemblyPath = currentAssemblyPath;
+        m_runtimeConfigPath = currentRuntimeConfigPath;
+        m_createComponentFn = previousCreateComponentFn;
+        m_destroyComponentFn = previousDestroyComponentFn;
+        m_updateContextFn = previousUpdateContextFn;
+        m_invokeLifecycleFn = previousInvokeLifecycleFn;
+        m_registerNativeApiFn = previousRegisterNativeApiFn;
+        if (m_lastError.empty()) {
+            m_lastError = previousError;
+        }
+        return false;
+    }
+
+    m_lastError.clear();
+    INXLOG_INFO("[ManagedRuntimeHost] Reloaded managed gameplay assembly: ", m_assemblyPath);
+    return true;
+}
+
 const std::string &ManagedRuntimeHost::GetLastError() const
 {
     return m_lastError;
@@ -1172,8 +1295,8 @@ bool ManagedRuntimeHost::LoadBridgeDelegates()
     if (m_delegateLoadAttempted && !m_loadAssemblyAndGetFunctionPointer) {
         return false;
     }
-    if (m_createComponentFn && m_destroyComponentFn && m_updateContextFn && m_invokeLifecycleFn && m_registerNativeApiFn) {
-        return true;
+    if (m_loadAssemblyAndGetFunctionPointer) {
+        return BindBridgeDelegates();
     }
 
     m_delegateLoadAttempted = true;
@@ -1207,13 +1330,27 @@ bool ManagedRuntimeHost::LoadBridgeDelegates()
     }
 
     m_loadAssemblyAndGetFunctionPointer = loadAssemblyDelegate;
+    return BindBridgeDelegates();
+#endif
+}
+
+bool ManagedRuntimeHost::BindBridgeDelegates()
+{
+#ifndef INX_PLATFORM_WINDOWS
+    return false;
+#else
+    if (!m_loadAssemblyAndGetFunctionPointer) {
+        SetError("Managed runtime assembly delegate is not available.");
+        return false;
+    }
 
     auto *loadAssemblyAndGetFunctionPointer =
         reinterpret_cast<load_assembly_and_get_function_pointer_fn>(m_loadAssemblyAndGetFunctionPointer);
 
     const std::wstring assemblyPath = ToWide(m_assemblyPath);
+    const std::wstring bridgeTypeName = BuildBridgeTypeName(m_assemblyPath);
     auto loadMethod = [&](const wchar_t *methodName, void **outFn) -> bool {
-        const int methodRc = loadAssemblyAndGetFunctionPointer(assemblyPath.c_str(), kBridgeTypeName, methodName,
+        const int methodRc = loadAssemblyAndGetFunctionPointer(assemblyPath.c_str(), bridgeTypeName.c_str(), methodName,
                                                                kUnmanagedCallersOnlyMethod, nullptr, outFn);
         if (methodRc != 0 || *outFn == nullptr) {
             SetError("Failed to bind managed bridge method '" + NarrowAscii(methodName) + "' (rc=" +

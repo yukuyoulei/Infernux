@@ -31,6 +31,7 @@ class ManagedRuntimeHost
     [[nodiscard]] bool IsSupportedPlatform() const;
     [[nodiscard]] bool IsConfigured() const;
     [[nodiscard]] bool IsRuntimeAvailable();
+    [[nodiscard]] bool ReloadScriptsIfChanged();
     [[nodiscard]] const std::string &GetLastError() const;
 
     bool CreateComponent(const std::string &typeName, int64_t &handle);
@@ -50,6 +51,7 @@ class ManagedRuntimeHost
     bool ResolveManagedArtifacts();
     bool LoadHostFxrLibrary();
     bool LoadBridgeDelegates();
+    bool BindBridgeDelegates();
     void SetError(const std::string &message);
 
     std::string m_projectPath;

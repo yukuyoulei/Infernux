@@ -849,6 +849,9 @@ PYBIND11_MODULE(_Infernux, m)
     m.def(
         "get_managed_runtime_error", []() { return ManagedRuntimeHost::Instance().GetLastError(); },
         "Get the last native managed runtime host error message.");
+    m.def(
+        "reload_managed_runtime_if_changed", []() { return ManagedRuntimeHost::Instance().ReloadScriptsIfChanged(); },
+        "Rebind the native managed runtime host to the latest compiled gameplay assembly when it changes.");
 
     // Register all binding modules
     RegisterGUIBindings(m);

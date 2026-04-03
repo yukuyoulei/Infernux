@@ -1,5 +1,8 @@
 """Tests for Infernux.engine.play_mode — PlayModeState, PlayModeEvent, PlayModeManager."""
 
+import sys
+from types import SimpleNamespace
+
 from Infernux.engine.play_mode import PlayModeState, PlayModeEvent, PlayModeManager
 
 
@@ -124,3 +127,85 @@ class TestPlayModeManager:
         assert mgr._rebuild_active_scene("snapshot", for_play=True)
         assert scene.playing is True
         assert not materialized
+
+    def test_rebuild_scene_refreshes_managed_runtime_before_restoring_components(self, monkeypatch):
+        class _FakeScene:
+            def __init__(self):
+                self.playing = None
+
+            def deserialize(self, snapshot):
+                return bool(snapshot)
+
+            def set_playing(self, playing):
+                self.playing = playing
+
+        class _FakeSceneManager:
+            def __init__(self, scene):
+                self._scene = scene
+
+            def get_active_scene(self):
+                return self._scene
+
+        mgr = PlayModeManager()
+        scene = _FakeScene()
+        scene_manager = _FakeSceneManager(scene)
+        call_order = []
+
+        monkeypatch.setattr(mgr, "_get_scene_manager", lambda: scene_manager)
+        monkeypatch.setattr(mgr, "_restore_pending_py_components", lambda: call_order.append("restore"))
+        monkeypatch.setitem(
+            sys.modules,
+            "Infernux.lib",
+            SimpleNamespace(
+                reload_managed_runtime_if_changed=lambda: call_order.append("reload") or True,
+                get_managed_runtime_error=lambda: "",
+            ),
+        )
+
+        assert mgr._rebuild_active_scene(
+            "snapshot",
+            for_play=True,
+            reload_managed_runtime=True,
+        )
+        assert call_order == ["reload", "restore"]
+        assert scene.playing is True
+
+    def test_rebuild_scene_aborts_when_managed_runtime_refresh_fails(self, monkeypatch):
+        class _FakeScene:
+            def deserialize(self, snapshot):
+                return bool(snapshot)
+
+        class _FakeSceneManager:
+            def __init__(self, scene):
+                self._scene = scene
+
+            def get_active_scene(self):
+                return self._scene
+
+        mgr = PlayModeManager()
+        scene = _FakeScene()
+        scene_manager = _FakeSceneManager(scene)
+        restored = False
+
+        monkeypatch.setattr(mgr, "_get_scene_manager", lambda: scene_manager)
+
+        def _unexpected_restore():
+            nonlocal restored
+            restored = True
+
+        monkeypatch.setattr(mgr, "_restore_pending_py_components", _unexpected_restore)
+        monkeypatch.setitem(
+            sys.modules,
+            "Infernux.lib",
+            SimpleNamespace(
+                reload_managed_runtime_if_changed=lambda: False,
+                get_managed_runtime_error=lambda: "reload failed",
+            ),
+        )
+
+        assert not mgr._rebuild_active_scene(
+            "snapshot",
+            for_play=True,
+            reload_managed_runtime=True,
+        )
+        assert not restored

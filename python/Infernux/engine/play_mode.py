@@ -352,7 +352,11 @@ class PlayModeManager:
 
         def step_rebuild():
             """Rebuild scene from snapshot."""
-            if not self._rebuild_active_scene(self._scene_backup, for_play=True):
+            if not self._rebuild_active_scene(
+                self._scene_backup,
+                for_play=True,
+                reload_managed_runtime=bool(csharp_script_components),
+            ):
                 Debug.log_error("Failed to rebuild runtime scene for Play Mode")
                 self._state = PlayModeState.EDIT
                 try:
@@ -624,6 +628,7 @@ class PlayModeManager:
         *,
         for_play: bool,
         restore_scene_path: bool = False,
+        reload_managed_runtime: bool = False,
     ) -> bool:
         """Deserialize *snapshot* into the active scene and recreate Python components.
 
@@ -664,6 +669,23 @@ class PlayModeManager:
         # Old GameObjects are gone — now safe to clear Python registries.
         InxComponent._clear_all_instances()
         BuiltinComponent._clear_cache()
+
+        if reload_managed_runtime:
+            try:
+                from Infernux.lib import (
+                    get_managed_runtime_error,
+                    reload_managed_runtime_if_changed,
+                )
+
+                if not reload_managed_runtime_if_changed():
+                    runtime_error = get_managed_runtime_error() or "unknown managed runtime reload error"
+                    Debug.log_error(
+                        f"Failed to switch Play Mode to the latest compiled C# assembly: {runtime_error}"
+                    )
+                    return False
+            except Exception as exc:
+                Debug.log_error(f"Failed to refresh managed runtime before Play Mode: {exc}")
+                return False
 
         # When entering play mode, mark the scene as playing BEFORE restoring
         # Python components so newly attached PyComponentProxy instances use the

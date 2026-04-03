@@ -179,6 +179,7 @@ class ScriptCompiler:
         try:
             project_root = os.path.dirname(os.path.dirname(csproj_path))
             output_dir = self._create_csharp_autobuild_output_dir(project_root)
+            assembly_name = self._create_csharp_autobuild_assembly_name(output_dir)
             completed = subprocess.run(
                 [
                     "dotnet",
@@ -190,6 +191,7 @@ class ScriptCompiler:
                     "-clp:ErrorsOnly",
                     "-o",
                     output_dir,
+                    f"-p:AssemblyName={assembly_name}",
                 ],
                 check=True,
                 stdout=subprocess.PIPE,
@@ -246,6 +248,11 @@ class ScriptCompiler:
         output_dir = os.path.join(project_root, CSHARP_AUTOBUILD_ROOT, "Debug", stamp)
         os.makedirs(output_dir, exist_ok=True)
         return output_dir
+
+    def _create_csharp_autobuild_assembly_name(self, output_dir: str) -> str:
+        stamp = os.path.basename(os.path.normpath(output_dir))
+        sanitized = re.sub(r"[^0-9A-Za-z_]", "_", stamp)
+        return f"Infernux.GameScripts_{sanitized}"
 
     def _write_csharp_autobuild_pointer(self, project_root: str, output_dir: str) -> None:
         pointer_path = os.path.join(project_root, CSHARP_AUTOBUILD_POINTER)
