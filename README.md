@@ -2,7 +2,7 @@
   <img src="docs/assets/logo.png" alt="Infernux logo" width="128" />
 </p>
 
-<h1 align="center">Infernux</h1>
+<h1 align="center">Infernux With C#</h1>
 
 <p align="center">
   <strong>面向 Windows 的开源游戏引擎，包含 C++17 / Vulkan 原生运行时、Python 编辑器层，以及正在完善中的 C# Gameplay 运行时。</strong>
