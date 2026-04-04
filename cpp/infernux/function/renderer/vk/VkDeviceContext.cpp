@@ -388,6 +388,11 @@ bool VkDeviceContext::CreateInstance(const DeviceConfig &config)
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
+#ifdef __APPLE__
+    // MoltenVK portability subset: required for macOS Vulkan drivers
+    createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+
     // Debug messenger create info (for instance creation/destruction debugging)
     VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
 
@@ -512,8 +517,18 @@ bool VkDeviceContext::CreateLogicalDevice(const DeviceConfig &config)
     VkPhysicalDeviceFeatures deviceFeatures{};
     deviceFeatures.samplerAnisotropy = VK_TRUE;
     deviceFeatures.fillModeNonSolid = VK_TRUE; // For wireframe
-    deviceFeatures.wideLines = VK_TRUE;        // For debug lines
     deviceFeatures.depthBiasClamp = VK_TRUE;   // For shadow depth bias clamping
+
+    // Query supported features — wideLines is unavailable on MoltenVK (macOS)
+    VkPhysicalDeviceFeatures supportedFeatures;
+    vkGetPhysicalDeviceFeatures(m_physicalDevice, &supportedFeatures);
+    deviceFeatures.wideLines = supportedFeatures.wideLines; // For debug lines (when available)
+
+    // Build device extension list
+    std::vector<const char *> deviceExtensions(DEVICE_EXTENSIONS.begin(), DEVICE_EXTENSIONS.end());
+#ifdef __APPLE__
+    deviceExtensions.push_back("VK_KHR_portability_subset");
+#endif
 
     // Device create info
     VkDeviceCreateInfo createInfo{};
@@ -521,8 +536,8 @@ bool VkDeviceContext::CreateLogicalDevice(const DeviceConfig &config)
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(DEVICE_EXTENSIONS.size());
-    createInfo.ppEnabledExtensionNames = DEVICE_EXTENSIONS.data();
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+    createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
     // Validation layers (deprecated for devices, but included for older implementations)
     if (m_validationEnabled) {
@@ -597,6 +612,9 @@ bool VkDeviceContext::IsDeviceSuitable(VkPhysicalDevice device, const DeviceConf
 
     // Check extension support
     std::vector<const char *> requiredExtensions(DEVICE_EXTENSIONS.begin(), DEVICE_EXTENSIONS.end());
+#ifdef __APPLE__
+    requiredExtensions.push_back("VK_KHR_portability_subset");
+#endif
 
     if (!CheckDeviceExtensionSupport(device, requiredExtensions)) {
         return false;
@@ -691,6 +709,11 @@ std::vector<const char *> VkDeviceContext::GetRequiredExtensions(bool enableVali
     if (enableValidation) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
+
+#ifdef __APPLE__
+    // MoltenVK requires portability enumeration to expose Vulkan drivers
+    extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
 
     return extensions;
 }

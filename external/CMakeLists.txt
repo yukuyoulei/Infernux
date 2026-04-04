@@ -20,7 +20,13 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+if(APPLE OR UNIX)
+    # Use system zlib on macOS/Linux — assimp's bundled old zlib has
+    # compilation issues with modern Apple Clang system headers.
+    set(ASSIMP_BUILD_ZLIB OFF CACHE BOOL "" FORCE)
+else()
+    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+endif()
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 
 # glslang configuration
@@ -53,7 +59,11 @@ set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)  # Not needed f
 set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)        # Not needed
 set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)                     # We don't use Jolt's GPU compute
 set(JPH_USE_VK OFF CACHE BOOL "" FORCE)                       # We have our own Vulkan renderer  
-set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)                      # Not targeting macOS yet
+if(APPLE)
+    set(JPH_USE_MTL ON CACHE BOOL "" FORCE)                     # macOS Metal backend for Jolt
+else()
+    set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+endif()
 set(JPH_USE_CPU_COMPUTE ON CACHE BOOL "" FORCE)               # CPU physics only
 
 # ------------------------------------------------------------------------------
