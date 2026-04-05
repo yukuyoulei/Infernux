@@ -201,52 +201,52 @@ class GameBuilder:
     def _build_inner(self, _p, _blog, on_progress, cancel_event, build_start) -> str:
         """Internal build pipeline (separated for clean exception handling)."""
 
-        _p("验证项目 Validating project...", 0.00)
+        _p(t("build.step.validating"), 0.00)
         self._validate()
 
-        _p("清理输出目录 Cleaning output...", 0.02)
+        _p(t("build.step.cleaning_output"), 0.02)
         self._clean_output()
 
-        _p("收集用户依赖 Collecting user dependencies...", 0.04)
+        _p(t("build.step.collecting_deps"), 0.04)
         user_packages = self._collect_user_dependencies()
 
-        _p("生成入口脚本 Generating boot script...", 0.05)
+        _p(t("build.step.generating_boot"), 0.05)
         boot_script = self._generate_boot_script()
 
-        _p("Nuitka 原生编译 Nuitka native compilation...", 0.06)
+        _p(t("build.step.nuitka_compilation"), 0.06)
         dist_dir = self._run_nuitka(boot_script, on_progress, user_packages, cancel_event)
 
-        _p("整理输出目录 Organizing output directory...", 0.86)
+        _p(t("build.step.organizing_output"), 0.86)
         final_dir = self._organize_output(dist_dir)
 
-        _p("复制游戏数据 Copying game data...", 0.88)
+        _p(t("build.step.copying_data"), 0.88)
         self._copy_game_data(final_dir)
 
-        _p("编译用户脚本 Compiling user scripts...", 0.91)
+        _p(t("build.step.compiling_scripts"), 0.91)
         self._compile_user_scripts(final_dir)
 
-        _p("处理开场画面 Processing splash items...", 0.93)
+        _p(t("build.step.processing_splash"), 0.93)
         self._process_splash_items(final_dir)
 
-        _p("处理场景路径 Fixing scene paths...", 0.96)
+        _p(t("build.step.fixing_scenes"), 0.96)
         self._relativize_scenes(final_dir)
 
-        _p("生成构建清单 Generating manifest...", 0.97)
+        _p(t("build.step.generating_manifest"), 0.97)
         self._generate_manifest(final_dir)
 
-        _p("清理冗余资源 Cleaning redundant resources...", 0.98)
+        _p(t("build.step.cleaning_redundant"), 0.98)
         self._cleanup_dist(final_dir)
 
-        _p("写入构建标记 Writing build marker...", 0.985)
+        _p(t("build.step.writing_marker"), 0.985)
         self._write_output_marker(final_dir)
 
-        _p("清理临时文件 Cleaning temp files...", 0.99)
+        _p(t("build.step.cleaning_temp"), 0.99)
         self._cleanup_temp(boot_script)
 
         # Log per-directory size breakdown so the user sees where size goes
         self._report_build_size(final_dir, _blog)
 
-        _p("构建完成 Build complete!", 1.0)
+        _p(t("build.step.complete"), 1.0)
         elapsed_seconds = time.perf_counter() - build_start
         done_msg = t("build.completed_log").format(
             path=final_dir,
@@ -1028,53 +1028,27 @@ finally:
     def _cleanup_dist(self, final_dir: str):
         """Remove editor-only and redundant files from the build output."""
         removed_bytes = 0
+        dirs_to_remove: list[str] = []
+        files_to_remove: list[str] = []
 
-        def _rm_dir(d: str):
-            nonlocal removed_bytes
-            if not os.path.isdir(d):
-                return
-            for r, _, fs in os.walk(d):
-                for f in fs:
-                    try:
-                        removed_bytes += os.path.getsize(os.path.join(r, f))
-                    except OSError:
-                        pass
-            if sys.platform == "win32":
-                subprocess.run(
-                    ["cmd", "/c", "rd", "/s", "/q", d],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            else:
-                shutil.rmtree(d, ignore_errors=True)
+        def _queue_dir(d: str):
+            if os.path.isdir(d):
+                dirs_to_remove.append(d)
 
-        def _rm_file(f: str):
-            nonlocal removed_bytes
+        def _queue_file(f: str):
             if os.path.isfile(f):
-                try:
-                    removed_bytes += os.path.getsize(f)
-                except OSError:
-                    pass
-                os.remove(f)
+                files_to_remove.append(f)
 
         # Directories that are entirely unnecessary at runtime
-        remove_dirs = [
-            os.path.join(final_dir, "Infernux", "lib", "_player_runtime"),
-            os.path.join(final_dir, "Infernux", "resources", "icons"),
-            os.path.join(final_dir, "Infernux", "resources", "supports"),
-        ]
-        for d in remove_dirs:
-            _rm_dir(d)
+        _queue_dir(os.path.join(final_dir, "Infernux", "lib", "_player_runtime"))
+        _queue_dir(os.path.join(final_dir, "Infernux", "resources", "icons"))
+        _queue_dir(os.path.join(final_dir, "Infernux", "resources", "supports"))
 
         # Individual files not needed at runtime
-        remove_files = [
-            os.path.join(final_dir, "Infernux", "lib", "_Infernux.pyi"),
-            os.path.join(final_dir, "Infernux", "lib", "InfernuxLauncher.exe"),
-            os.path.join(final_dir, "Data", "ProjectSettings", "EditorSettings.json"),
-            os.path.join(final_dir, "Data", "ProjectSettings", "GameView.ini"),
-        ]
-        for f in remove_files:
-            _rm_file(f)
+        _queue_file(os.path.join(final_dir, "Infernux", "lib", "_Infernux.pyi"))
+        _queue_file(os.path.join(final_dir, "Infernux", "lib", "InfernuxLauncher.exe"))
+        _queue_file(os.path.join(final_dir, "Data", "ProjectSettings", "EditorSettings.json"))
+        _queue_file(os.path.join(final_dir, "Data", "ProjectSettings", "GameView.ini"))
 
         # Remove duplicate engine DLLs from Infernux/lib/ — they already
         # exist in the dist root (placed by Nuitka / _inject_native_libs)
@@ -1084,7 +1058,7 @@ finally:
         if os.path.isdir(lib_dir):
             for fname in os.listdir(lib_dir):
                 if fname.lower().endswith(".dll"):
-                    _rm_file(os.path.join(lib_dir, fname))
+                    _queue_file(os.path.join(lib_dir, fname))
 
         # Remove .meta files from engine shaders (editor hot-reload metadata)
         shaders_dir = os.path.join(final_dir, "Infernux", "resources", "shaders")
@@ -1092,23 +1066,59 @@ finally:
             for root, _, files in os.walk(shaders_dir):
                 for fname in files:
                     if fname.endswith(".meta"):
-                        _rm_file(os.path.join(root, fname))
+                        _queue_file(os.path.join(root, fname))
 
-        # ── Global cleanup: __pycache__ and .dist-info everywhere ─────
+        # ── Global cleanup: __pycache__, .dist-info, and stale .pyc ──
+        jit_dirs = {os.path.join(final_dir, p) for p in ("numba", "llvmlite", "numpy")}
         for root, dirs, files in os.walk(final_dir, topdown=False):
             for dname in dirs:
-                dpath = os.path.join(root, dname)
                 if dname == "__pycache__" or dname.endswith(".dist-info"):
-                    _rm_dir(dpath)
+                    dirs_to_remove.append(os.path.join(root, dname))
+            # Remove stale .pyc from raw-copied JIT packages
+            if any(root == jd or root.startswith(jd + os.sep) for jd in jit_dirs):
+                for fname in files:
+                    if fname.endswith(".pyc"):
+                        files_to_remove.append(os.path.join(root, fname))
 
-        # ── Remove stale .pyc files from raw-copied JIT packages ──────
-        for pkg_name in ("numba", "llvmlite", "numpy"):
-            pkg_dir = os.path.join(final_dir, pkg_name)
-            if os.path.isdir(pkg_dir):
-                for root, _, files in os.walk(pkg_dir):
-                    for fname in files:
-                        if fname.endswith(".pyc"):
-                            _rm_file(os.path.join(root, fname))
+        # ── Execute removals ─────────────────────────────────────────
+        # 1. Remove individual files (fast, no subprocess)
+        for f in files_to_remove:
+            try:
+                removed_bytes += os.path.getsize(f)
+            except OSError:
+                pass
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+        # 2. Count bytes in queued dirs, then batch-remove
+        for d in dirs_to_remove:
+            if not os.path.isdir(d):
+                continue
+            for r, _, fs in os.walk(d):
+                for fname in fs:
+                    try:
+                        removed_bytes += os.path.getsize(os.path.join(r, fname))
+                    except OSError:
+                        pass
+
+        if sys.platform == "win32" and dirs_to_remove:
+            # Single cmd process to remove all directories at once
+            rd_args = []
+            for d in dirs_to_remove:
+                if os.path.isdir(d):
+                    rd_args.extend(["rd", "/s", "/q", d, "&"])
+            if rd_args:
+                rd_args.pop()  # remove trailing "&"
+                subprocess.run(
+                    ["cmd", "/c"] + rd_args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        else:
+            for d in dirs_to_remove:
+                shutil.rmtree(d, ignore_errors=True)
 
         # Ensure Data/Logs exists for runtime log output
         logs_dir = os.path.join(final_dir, "Data", "Logs")
@@ -1119,10 +1129,27 @@ finally:
 
     @staticmethod
     def _cleanup_temp(boot_script: str):
-        """Remove the temporary boot script directory."""
+        """Remove the temporary boot script directory.
+
+        Runs in a daemon thread so the caller returns immediately;
+        on Windows uses a single ``rd /s /q`` for speed.
+        """
         boot_dir = os.path.dirname(boot_script)
-        if os.path.isdir(boot_dir):
-            shutil.rmtree(boot_dir, ignore_errors=True)
+        if not os.path.isdir(boot_dir):
+            return
+
+        def _bg():
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["cmd", "/c", "rd", "/s", "/q", boot_dir],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                shutil.rmtree(boot_dir, ignore_errors=True)
+
+        t = threading.Thread(target=_bg, daemon=True)
+        t.start()
 
     # ------------------------------------------------------------------
     # Build size report

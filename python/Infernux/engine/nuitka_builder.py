@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from Infernux.debug import Debug
+from Infernux.engine.i18n import t
 
 # ASCII-safe root for Nuitka staging and temporary build artifacts.
 _STAGING_ROOT = "C:\\_InxBuild"
@@ -293,37 +294,37 @@ class NuitkaBuilder:
                 f"nuitka total {now - _build_t0:.1f}s)"
             )
 
-        _p("检查 Nuitka 可用性 Checking Nuitka...", 0.0)
+        _p(t("build.step.checking_nuitka"), 0.0)
         self._check_nuitka()
 
-        _p("准备暂存目录 Preparing staging directory...", 0.03)
+        _p(t("build.step.preparing_staging"), 0.03)
         self._prepare_staging()
 
-        _p("构建 Nuitka 命令 Building command...", 0.05)
+        _p(t("build.step.building_command"), 0.05)
         cmd = self._build_command()
-        _p(f"命令: {' '.join(cmd)}", 0.05)
+        _p(f"cmd: {' '.join(cmd)}", 0.05)
 
-        _p("执行 Nuitka 编译 Running Nuitka compilation...", 0.10)
+        _p(t("build.step.running_nuitka"), 0.10)
         dist_dir = self._run_nuitka(cmd, on_progress, cancel_event)
 
-        _p("注入原生引擎库 Injecting native engine libraries...", 0.85)
+        _p(t("build.step.injecting_libs"), 0.85)
         self._inject_native_libs(dist_dir)
 
         if self.raw_copy_packages:
-            _p("注入 JIT 运行时包 Injecting JIT runtime packages...", 0.87)
+            _p(t("build.step.injecting_jit"), 0.87)
             self._inject_jit_packages(dist_dir)
 
         if sys.platform == "win32":
-            _p("嵌入 UTF-8 清单 Embedding UTF-8 manifest...", 0.90)
+            _p(t("build.step.embedding_manifest"), 0.90)
             self._embed_utf8_manifest(dist_dir)
 
-            _p("签名可执行文件 Signing executable...", 0.92)
+            _p(t("build.step.signing_exe"), 0.92)
             self._sign_executable(dist_dir)
 
-        _p("清理编译产物 Cleaning build artifacts...", 0.95)
+        _p(t("build.step.cleaning_artifacts"), 0.95)
         self._cleanup_build_artifacts()
 
-        _p("Nuitka 编译完成 Compilation complete!", 1.0)
+        _p(t("build.step.nuitka_complete"), 1.0)
         return dist_dir
 
     # ------------------------------------------------------------------
