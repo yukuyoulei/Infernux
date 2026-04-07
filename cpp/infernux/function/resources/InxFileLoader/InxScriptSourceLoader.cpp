@@ -63,7 +63,7 @@ void InxScriptSourceLoader::CreateMeta(const char *content, size_t contentSize, 
             classesStr += ",";
         classesStr += cls;
 
-        if (IsInxComponentClass(contentStr, cls, language)) {
+        if (IsAttachableComponentClass(contentStr, cls, language)) {
             if (!componentClassesStr.empty())
                 componentClassesStr += ",";
             componentClassesStr += cls;
@@ -135,11 +135,11 @@ std::vector<std::string> InxScriptSourceLoader::ParseClassNames(const std::strin
     return classNames;
 }
 
-bool InxScriptSourceLoader::IsInxComponentClass(const std::string &source, const std::string &className,
-                                                const std::string &language) const
+bool InxScriptSourceLoader::IsAttachableComponentClass(const std::string &source, const std::string &className,
+                                                       const std::string &language) const
 {
     const std::string pattern =
-        language == "csharp" ? (R"(class\s+)" + className + R"(\s*:\s*[^{\n]*\bInxComponent\b)")
+        language == "csharp" ? (R"(class\s+)" + className + R"(\s*:\s*[^{\n]*\bMonoBehaviour\b)")
                              : (R"(class\s+)" + className + R"(\s*\([^)]*InxComponent[^)]*\))");
     std::regex componentRegex(pattern);
     if (std::regex_search(source, componentRegex)) {

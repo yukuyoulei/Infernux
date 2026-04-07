@@ -15,7 +15,7 @@ import shutil
 
 SCRIPT_TEMPLATE = """using Infernux;
 
-public sealed class {class_name} : InxComponent
+public sealed class {class_name} : MonoBehaviour
 {{
     public override void Start()
     {{

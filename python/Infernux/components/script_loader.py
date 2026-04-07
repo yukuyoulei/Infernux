@@ -41,7 +41,7 @@ _external_component_types: dict[tuple[str, str, str], Type[InxComponent]] = {}
 
 _CS_COMPONENT_RE = re.compile(
     r"^\s*(?:(?:public|internal|protected|private|abstract|sealed|static|partial)\s+)*"
-    r"class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*[^{\n]*\bInxComponent\b",
+    r"class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*[^{\n]*\bMonoBehaviour\b",
     re.MULTILINE,
 )
 
@@ -308,11 +308,11 @@ def load_component_from_file(file_path: str) -> Type[InxComponent]:
     """
     components = load_all_components_from_file(file_path)
     if not components:
-        raise ScriptLoadError(f"No InxComponent subclasses found in {file_path}")
+        raise ScriptLoadError(f"No attachable component classes found in {file_path}")
     if len(components) > 1:
         names = ", ".join(cls.__name__ for cls in components)
         raise ScriptLoadError(
-            f"Script '{file_path}' defines multiple InxComponent classes ({names}). "
+            f"Script '{file_path}' defines multiple attachable component classes ({names}). "
             "Dragging or attaching by script file requires exactly one component class."
         )
     return components[0]

@@ -232,7 +232,7 @@ namespace Infernux
             return instanceId != 0 ? new GameObject(instanceId) : null;
         }
 
-        public T? AddComponent<T>() where T : InxComponent
+        public T? AddComponent<T>() where T : MonoBehaviour
         {
             long handle = Managed.NativeApi.AddManagedComponent(
                 InstanceId,
@@ -518,7 +518,7 @@ namespace Infernux
         }
     }
 
-    public abstract class InxComponent : Behaviour
+    public abstract class MonoBehaviour : Behaviour
     {
         public long GameObjectId { get; private set; }
         public long ComponentId { get; private set; }
@@ -594,6 +594,7 @@ namespace Infernux
         {
         }
     }
+
 }
 
 namespace Infernux.Managed
@@ -1825,7 +1826,7 @@ namespace Infernux.Managed
 
     public static class ManagedComponentBridge
     {
-        private static readonly Dictionary<long, InxComponent> Components = new();
+        private static readonly Dictionary<long, MonoBehaviour> Components = new();
         private static readonly Dictionary<string, Type> TypeCache = new(StringComparer.Ordinal);
         private static long _nextHandle;
 
@@ -1841,12 +1842,12 @@ namespace Infernux.Managed
                 }
 
                 Type type = ResolveComponentType(typeName);
-                if (!typeof(InxComponent).IsAssignableFrom(type) || type.IsAbstract)
+                if (!typeof(MonoBehaviour).IsAssignableFrom(type) || type.IsAbstract)
                 {
-                    throw new InvalidOperationException($"Type '{typeName}' is not a concrete InxComponent.");
+                    throw new InvalidOperationException($"Type '{typeName}' is not a concrete MonoBehaviour.");
                 }
 
-                if (Activator.CreateInstance(type) is not InxComponent component)
+                if (Activator.CreateInstance(type) is not MonoBehaviour component)
                 {
                     throw new InvalidOperationException($"Failed to construct managed component '{typeName}'.");
                 }
@@ -1891,7 +1892,7 @@ namespace Infernux.Managed
         {
             try
             {
-                InxComponent component = GetComponentByHandle(handle);
+                MonoBehaviour component = GetComponentByHandle(handle);
                 component.__UpdateContext(
                     gameObjectId,
                     componentId,
@@ -2043,7 +2044,7 @@ namespace Infernux.Managed
         {
             try
             {
-                InxComponent component = GetComponentByHandle(handle);
+                MonoBehaviour component = GetComponentByHandle(handle);
                 switch ((ManagedLifecycleEvent)eventId)
                 {
                     case ManagedLifecycleEvent.Awake:
@@ -2089,20 +2090,20 @@ namespace Infernux.Managed
             }
         }
 
-        internal static string GetManagedTypeName<T>() where T : InxComponent
+        internal static string GetManagedTypeName<T>() where T : MonoBehaviour
         {
             Type type = typeof(T);
             return type.FullName ?? type.Name;
         }
 
-        internal static T? GetManagedComponent<T>(long handle) where T : InxComponent
+        internal static T? GetManagedComponent<T>(long handle) where T : MonoBehaviour
         {
             if (handle == 0)
             {
                 return null;
             }
 
-            InxComponent component = GetComponentByHandle(handle);
+            MonoBehaviour component = GetComponentByHandle(handle);
             if (component is T typedComponent)
             {
                 return typedComponent;
@@ -2150,10 +2151,10 @@ namespace Infernux.Managed
 
         private static T? GetManagedGameObjectComponent<T>(long gameObjectId) where T : Component
         {
-            if (!typeof(InxComponent).IsAssignableFrom(typeof(T)))
+            if (!typeof(MonoBehaviour).IsAssignableFrom(typeof(T)))
             {
                 throw new NotSupportedException(
-                    $"GetComponent<{typeof(T).Name}> currently supports Transform or managed InxComponent-derived types only.");
+                    $"GetComponent<{typeof(T).Name}> currently supports Transform or managed MonoBehaviour-derived types only.");
             }
 
             long handle = NativeApi.GetManagedComponent(gameObjectId, GetManagedTypeNameForLookup(typeof(T)));
@@ -2162,10 +2163,10 @@ namespace Infernux.Managed
 
         private static T? GetManagedGameObjectComponentInChildren<T>(long gameObjectId) where T : Component
         {
-            if (!typeof(InxComponent).IsAssignableFrom(typeof(T)))
+            if (!typeof(MonoBehaviour).IsAssignableFrom(typeof(T)))
             {
                 throw new NotSupportedException(
-                    $"GetComponentInChildren<{typeof(T).Name}> currently supports Transform or managed InxComponent-derived types only.");
+                    $"GetComponentInChildren<{typeof(T).Name}> currently supports Transform or managed MonoBehaviour-derived types only.");
             }
 
             long handle = NativeApi.GetManagedComponentInChildren(gameObjectId, GetManagedTypeNameForLookup(typeof(T)));
@@ -2174,10 +2175,10 @@ namespace Infernux.Managed
 
         private static T? GetManagedGameObjectComponentInParent<T>(long gameObjectId) where T : Component
         {
-            if (!typeof(InxComponent).IsAssignableFrom(typeof(T)))
+            if (!typeof(MonoBehaviour).IsAssignableFrom(typeof(T)))
             {
                 throw new NotSupportedException(
-                    $"GetComponentInParent<{typeof(T).Name}> currently supports Transform or managed InxComponent-derived types only.");
+                    $"GetComponentInParent<{typeof(T).Name}> currently supports Transform or managed MonoBehaviour-derived types only.");
             }
 
             long handle = NativeApi.GetManagedComponentInParent(gameObjectId, GetManagedTypeNameForLookup(typeof(T)));
@@ -2189,14 +2190,14 @@ namespace Infernux.Managed
             return type.FullName ?? type.Name;
         }
 
-        private static InxComponent GetManagedComponent(long handle, Type expectedType)
+        private static MonoBehaviour GetManagedComponent(long handle, Type expectedType)
         {
-            if (!typeof(InxComponent).IsAssignableFrom(expectedType))
+            if (!typeof(MonoBehaviour).IsAssignableFrom(expectedType))
             {
-                throw new ArgumentException("Expected managed component type must derive from InxComponent.", nameof(expectedType));
+                throw new ArgumentException("Expected managed component type must derive from MonoBehaviour.", nameof(expectedType));
             }
 
-            InxComponent component = GetComponentByHandle(handle);
+            MonoBehaviour component = GetComponentByHandle(handle);
             if (expectedType.IsInstanceOfType(component))
             {
                 return component;
@@ -2206,9 +2207,9 @@ namespace Infernux.Managed
                 $"Managed component handle {handle} is '{component.GetType().FullName}', not '{expectedType.FullName}'.");
         }
 
-        private static InxComponent GetComponentByHandle(long handle)
+        private static MonoBehaviour GetComponentByHandle(long handle)
         {
-            if (!Components.TryGetValue(handle, out InxComponent? component) || component is null)
+            if (!Components.TryGetValue(handle, out MonoBehaviour? component) || component is null)
             {
                 throw new KeyNotFoundException($"Managed component handle {handle} was not found.");
             }
@@ -2265,7 +2266,7 @@ def _build_default_script_content(project_name: str) -> str:
     script_class_name = sanitize_csharp_identifier(project_name)
     return f"""using Infernux;
 
-public sealed class {script_class_name} : InxComponent
+public sealed class {script_class_name} : MonoBehaviour
 {{
     public override void Start()
     {{

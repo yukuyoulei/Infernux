@@ -37,7 +37,8 @@ class InxScriptSourceLoader : public IAssetLoader
     std::string DetectLanguage(const std::string &filePath) const;
     std::set<std::string> ParseImports(const std::string &source, const std::string &language) const;
     std::vector<std::string> ParseClassNames(const std::string &source, const std::string &language) const;
-    bool IsInxComponentClass(const std::string &source, const std::string &className, const std::string &language) const;
+    bool IsAttachableComponentClass(const std::string &source, const std::string &className,
+                                    const std::string &language) const;
 };
 
 } // namespace infernux

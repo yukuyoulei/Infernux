@@ -1319,7 +1319,7 @@ class InspectorPanel(EditorPanel):
         return [t for t in sorted(types) if t != "Transform"]
 
     def _scan_project_csharp_scripts(self):
-        """Scan the compiled Assets tree for attachable C# InxComponent types."""
+        """Scan the compiled Assets tree for attachable C# MonoBehaviour types."""
         results = []
         from Infernux.engine.project_context import get_project_root
         from Infernux.components.script_loader import load_all_components_from_file, ScriptLoadError
@@ -1344,7 +1344,7 @@ class InspectorPanel(EditorPanel):
                 full = os.path.join(dirpath, fn)
                 with open(full, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read(4096)
-                if 'InxComponent' not in content:
+                if 'MonoBehaviour' not in content:
                     continue
                 try:
                     component_classes = load_all_components_from_file(full)
@@ -1601,7 +1601,7 @@ class InspectorPanel(EditorPanel):
             Debug.log_error(f"Failed to load script '{script_path}': {exc}")
             return
         if component_instance is None:
-            Debug.log_error(f"No InxComponent found in '{script_path}'")
+            Debug.log_error(f"No MonoBehaviour found in '{script_path}'")
             return
 
         # --- Enforce @disallow_multiple ---

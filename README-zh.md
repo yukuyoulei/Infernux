@@ -91,7 +91,7 @@ The generated project targets `net8.0`, and the native runtime loads the resulti
 
 ### C# API currently bridged
 
-User gameplay scripts currently inherit from `InxComponent`.
+User gameplay scripts now inherit from `MonoBehaviour`.
 
 `Object`
 
@@ -108,10 +108,10 @@ User gameplay scripts currently inherit from `InxComponent`.
 
 `Behaviour`
 
-- 位于 `Component` 与 `InxComponent` 之间的中间层
+- 位于 `Component` 与 `MonoBehaviour` 之间的中间层
 - 公共状态：`enabled`, `isActiveAndEnabled`
 
-`InxComponent`
+`MonoBehaviour`
 
 - context properties: `gameObject`, `transform`, `Enabled`, `enabled`, `isActiveAndEnabled`, `ExecutionOrder`, `ScriptGuid`
 - lifecycle methods: `Awake`, `OnEnable`, `Start`, `Update(float deltaTime)`, `FixedUpdate(float fixedDeltaTime)`, `LateUpdate(float deltaTime)`, `OnDisable`, `OnDestroy`, `OnValidate`, `Reset`
@@ -122,7 +122,7 @@ User gameplay scripts currently inherit from `InxComponent`.
 - `Create(string? name = null)`
 - `CreatePrimitive(PrimitiveType, string? name = null)`
 - `Instantiate(GameObject, Transform? parent = null)`
-- `AddComponent<T>() where T : InxComponent`
+- `AddComponent<T>() where T : MonoBehaviour`
 - `GetComponent<T>() where T : Component`
 - `TryGetComponent<T>(out T? component) where T : Component`
 - `GetComponentInChildren<T>() where T : Component`
@@ -190,7 +190,7 @@ User gameplay scripts currently inherit from `InxComponent`.
 ```csharp
 using Infernux;
 
-public sealed class NewComponent : InxComponent
+public sealed class NewComponent : MonoBehaviour
 {
     public override void Start()
     {

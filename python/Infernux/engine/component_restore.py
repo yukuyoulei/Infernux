@@ -99,7 +99,7 @@ def _make_broken_component(pc, script_path: Optional[str]):
             f"(guid={getattr(pc, 'script_guid', '')})"
             if not script_path
             else (
-                f"Script '{script_path}' contains no InxComponent subclass "
+                f"Script '{script_path}' contains no matching component class "
                 f"for '{pc.type_name}'"
             )
         )
