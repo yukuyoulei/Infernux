@@ -98,6 +98,9 @@ User gameplay scripts now inherit from `MonoBehaviour`.
 - Unity 风格的根基类，`GameObject` 与所有组件都继承自它
 - 公共属性：`name`
 - `GetInstanceID()`
+- `Instantiate<T>(T original)`
+- `Instantiate<T>(T original, Transform? parent)`
+- `Destroy(Object?)`
 
 `Component`
 
@@ -123,10 +126,15 @@ User gameplay scripts now inherit from `MonoBehaviour`.
 - `CreatePrimitive(PrimitiveType, string? name = null)`
 - `Instantiate(GameObject, Transform? parent = null)`
 - `AddComponent<T>() where T : MonoBehaviour`
+- `AddComponent(Type)`
 - `GetComponent<T>() where T : Component`
+- `GetComponent(Type)`
 - `TryGetComponent<T>(out T? component) where T : Component`
+- `TryGetComponent(Type, out Component?)`
 - `GetComponentInChildren<T>() where T : Component`
+- `GetComponentInChildren(Type)`
 - `GetComponentInParent<T>() where T : Component`
+- `GetComponentInParent(Type)`
 - `Destroy(GameObject?)`
 - `Destroy()`
 - `name`

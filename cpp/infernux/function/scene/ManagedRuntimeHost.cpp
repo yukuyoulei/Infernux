@@ -65,6 +65,7 @@ using get_managed_component_in_children_fn = int64_t(__cdecl *)(int64_t game_obj
 using get_managed_component_in_parent_fn = int64_t(__cdecl *)(int64_t game_object_id, const char *type_name_utf8);
 using get_transform_component_id_fn = int64_t(__cdecl *)(int64_t game_object_id);
 using set_component_enabled_fn = int32_t(__cdecl *)(int64_t component_id, int32_t enabled);
+using destroy_component_by_id_fn = int32_t(__cdecl *)(int64_t component_id);
 using get_game_object_world_position_fn =
     int32_t(__cdecl *)(int64_t game_object_id, float *x, float *y, float *z);
 using set_game_object_world_position_fn = int32_t(__cdecl *)(int64_t game_object_id, float x, float y, float z);
@@ -140,6 +141,7 @@ using register_native_api_fn =
                    get_managed_component_in_parent_fn get_managed_component_in_parent_fn,
                    get_transform_component_id_fn get_transform_component_id_fn,
                    set_component_enabled_fn set_component_enabled_fn,
+                   destroy_component_by_id_fn destroy_component_by_id_fn,
                    get_game_object_world_position_fn get_world_position_fn,
                    set_game_object_world_position_fn set_world_position_fn, get_game_object_name_fn get_name_fn,
                    set_game_object_name_fn set_name_fn, set_game_object_active_fn set_active_fn,
@@ -745,6 +747,21 @@ int32_t __cdecl SetComponentEnabled(int64_t componentId, int32_t enabled)
 
     component->SetEnabled(enabled != 0);
     return 0;
+}
+
+int32_t __cdecl DestroyComponentById(int64_t componentId)
+{
+    Component *component = FindActiveSceneComponent(componentId);
+    if (!component) {
+        return 1;
+    }
+
+    GameObject *gameObject = component->GetGameObject();
+    if (!gameObject) {
+        return 1;
+    }
+
+    return gameObject->RemoveComponent(component) ? 0 : 1;
 }
 
 int32_t __cdecl GetGameObjectWorldPosition(int64_t gameObjectId, float *x, float *y, float *z)
@@ -2050,7 +2067,7 @@ bool ManagedRuntimeHost::BindBridgeDelegates()
                                 &FindGameObjectByName, &CreateGameObject, &CreatePrimitiveObject, &DestroyGameObject,
                                 &InstantiateGameObject, &AddManagedComponent, &GetManagedComponent,
                                 &GetManagedComponentInChildren, &GetManagedComponentInParent, &GetTransformComponentId,
-                                &SetComponentEnabled, &GetGameObjectWorldPosition,
+                                &SetComponentEnabled, &DestroyComponentById, &GetGameObjectWorldPosition,
                                 &SetGameObjectWorldPosition, &GetGameObjectName, &SetGameObjectName, &SetGameObjectActive,
                                 &GetGameObjectActiveSelf, &GetGameObjectActiveInHierarchy, &GetGameObjectTag,
                                 &SetGameObjectTag, &CompareGameObjectTag, &GetGameObjectLayer, &SetGameObjectLayer,
