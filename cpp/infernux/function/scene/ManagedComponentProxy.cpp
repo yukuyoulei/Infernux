@@ -150,6 +150,11 @@ bool ManagedComponentProxy::EnsureCreated()
     return true;
 }
 
+bool ManagedComponentProxy::EnsureManagedReady()
+{
+    return SyncManagedContext();
+}
+
 bool ManagedComponentProxy::SyncManagedContext()
 {
     if (!EnsureCreated()) {

@@ -14,6 +14,7 @@
 #include <core/config/InxPlatform.h>
 #include <core/log/InxLog.h>
 #include <function/scene/GameObject.h>
+#include <function/scene/ManagedComponentProxy.h>
 #include <function/scene/MeshRenderer.h>
 #include <function/scene/PrimitiveMeshes.h>
 #include <function/scene/SceneManager.h>
@@ -58,6 +59,12 @@ using create_game_object_fn = int64_t(__cdecl *)(const char *name_utf8);
 using create_primitive_fn = int64_t(__cdecl *)(int32_t primitive_type, const char *name_utf8);
 using destroy_game_object_fn = int32_t(__cdecl *)(int64_t game_object_id);
 using instantiate_game_object_fn = int64_t(__cdecl *)(int64_t source_game_object_id, int64_t parent_game_object_id);
+using add_managed_component_fn = int64_t(__cdecl *)(int64_t game_object_id, const char *type_name_utf8);
+using get_managed_component_fn = int64_t(__cdecl *)(int64_t game_object_id, const char *type_name_utf8);
+using get_managed_component_in_children_fn = int64_t(__cdecl *)(int64_t game_object_id, const char *type_name_utf8);
+using get_managed_component_in_parent_fn = int64_t(__cdecl *)(int64_t game_object_id, const char *type_name_utf8);
+using get_transform_component_id_fn = int64_t(__cdecl *)(int64_t game_object_id);
+using set_component_enabled_fn = int32_t(__cdecl *)(int64_t component_id, int32_t enabled);
 using get_game_object_world_position_fn =
     int32_t(__cdecl *)(int64_t game_object_id, float *x, float *y, float *z);
 using set_game_object_world_position_fn = int32_t(__cdecl *)(int64_t game_object_id, float x, float y, float z);
@@ -127,6 +134,12 @@ using register_native_api_fn =
                    create_game_object_fn create_game_object_fn, create_primitive_fn create_primitive_fn,
                    destroy_game_object_fn destroy_game_object_fn,
                    instantiate_game_object_fn instantiate_game_object_fn,
+                   add_managed_component_fn add_managed_component_fn,
+                   get_managed_component_fn get_managed_component_fn,
+                   get_managed_component_in_children_fn get_managed_component_in_children_fn,
+                   get_managed_component_in_parent_fn get_managed_component_in_parent_fn,
+                   get_transform_component_id_fn get_transform_component_id_fn,
+                   set_component_enabled_fn set_component_enabled_fn,
                    get_game_object_world_position_fn get_world_position_fn,
                    set_game_object_world_position_fn set_world_position_fn, get_game_object_name_fn get_name_fn,
                    set_game_object_name_fn set_name_fn, set_game_object_active_fn set_active_fn,
@@ -407,6 +420,84 @@ Transform *FindActiveSceneTransform(int64_t gameObjectId)
     return gameObject->GetTransform();
 }
 
+Component *FindActiveSceneComponent(int64_t componentId)
+{
+    if (componentId <= 0) {
+        return nullptr;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return nullptr;
+    }
+
+    for (GameObject *gameObject : scene->GetAllObjects()) {
+        if (!gameObject) {
+            continue;
+        }
+
+        Transform *transform = gameObject->GetTransform();
+        if (transform && static_cast<int64_t>(transform->GetComponentID()) == componentId) {
+            return transform;
+        }
+
+        for (const auto &component : gameObject->GetAllComponents()) {
+            if (component && static_cast<int64_t>(component->GetComponentID()) == componentId) {
+                return component.get();
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+std::string ManagedLeafTypeName(std::string_view typeName)
+{
+    const size_t lastSeparator = typeName.find_last_of(".+");
+    if (lastSeparator == std::string_view::npos) {
+        return std::string(typeName);
+    }
+    return std::string(typeName.substr(lastSeparator + 1));
+}
+
+bool ManagedTypeNameMatches(std::string_view storedTypeName, std::string_view requestedTypeName)
+{
+    if (storedTypeName.empty() || requestedTypeName.empty()) {
+        return false;
+    }
+    if (storedTypeName == requestedTypeName) {
+        return true;
+    }
+    return ManagedLeafTypeName(storedTypeName) == ManagedLeafTypeName(requestedTypeName);
+}
+
+ManagedComponentProxy *FindManagedComponentOnGameObject(GameObject *gameObject, std::string_view typeName)
+{
+    if (!gameObject || typeName.empty()) {
+        return nullptr;
+    }
+
+    for (const auto &component : gameObject->GetAllComponents()) {
+        auto *managedProxy = dynamic_cast<ManagedComponentProxy *>(component.get());
+        if (!managedProxy) {
+            continue;
+        }
+        if (ManagedTypeNameMatches(managedProxy->GetManagedTypeName(), typeName)) {
+            return managedProxy;
+        }
+    }
+
+    return nullptr;
+}
+
+int64_t ResolveManagedComponentHandle(ManagedComponentProxy *managedProxy)
+{
+    if (!managedProxy || !managedProxy->EnsureManagedReady()) {
+        return 0;
+    }
+    return managedProxy->GetManagedHandle();
+}
+
 int64_t __cdecl FindGameObjectByName(const char *nameUtf8)
 {
     if (!nameUtf8 || !*nameUtf8) {
@@ -538,6 +629,122 @@ int64_t __cdecl InstantiateGameObject(int64_t sourceGameObjectId, int64_t parent
 
     GameObject *clone = scene->InstantiateGameObject(source, parent);
     return clone ? static_cast<int64_t>(clone->GetID()) : 0;
+}
+
+int64_t __cdecl AddManagedComponent(int64_t gameObjectId, const char *typeNameUtf8)
+{
+    if (gameObjectId <= 0 || !typeNameUtf8 || !*typeNameUtf8) {
+        return 0;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 0;
+    }
+
+    GameObject *gameObject = scene->FindByID(static_cast<uint64_t>(gameObjectId));
+    if (!gameObject) {
+        return 0;
+    }
+
+    auto component = std::make_unique<ManagedComponentProxy>(typeNameUtf8);
+    Component *created = gameObject->AddExistingComponent(std::move(component));
+    auto *managedProxy = dynamic_cast<ManagedComponentProxy *>(created);
+    return ResolveManagedComponentHandle(managedProxy);
+}
+
+int64_t __cdecl GetManagedComponent(int64_t gameObjectId, const char *typeNameUtf8)
+{
+    if (gameObjectId <= 0 || !typeNameUtf8 || !*typeNameUtf8) {
+        return 0;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 0;
+    }
+
+    GameObject *gameObject = scene->FindByID(static_cast<uint64_t>(gameObjectId));
+    if (!gameObject) {
+        return 0;
+    }
+
+    return ResolveManagedComponentHandle(FindManagedComponentOnGameObject(gameObject, typeNameUtf8));
+}
+
+int64_t __cdecl GetManagedComponentInChildren(int64_t gameObjectId, const char *typeNameUtf8)
+{
+    if (gameObjectId <= 0 || !typeNameUtf8 || !*typeNameUtf8) {
+        return 0;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 0;
+    }
+
+    GameObject *gameObject = scene->FindByID(static_cast<uint64_t>(gameObjectId));
+    if (!gameObject) {
+        return 0;
+    }
+
+    if (ManagedComponentProxy *self = FindManagedComponentOnGameObject(gameObject, typeNameUtf8)) {
+        return ResolveManagedComponentHandle(self);
+    }
+
+    for (const auto &child : gameObject->GetChildren()) {
+        if (!child) {
+            continue;
+        }
+        const int64_t childHandle = GetManagedComponentInChildren(static_cast<int64_t>(child->GetID()), typeNameUtf8);
+        if (childHandle != 0) {
+            return childHandle;
+        }
+    }
+
+    return 0;
+}
+
+int64_t __cdecl GetManagedComponentInParent(int64_t gameObjectId, const char *typeNameUtf8)
+{
+    if (gameObjectId <= 0 || !typeNameUtf8 || !*typeNameUtf8) {
+        return 0;
+    }
+
+    Scene *scene = SceneManager::Instance().GetActiveScene();
+    if (!scene) {
+        return 0;
+    }
+
+    GameObject *gameObject = scene->FindByID(static_cast<uint64_t>(gameObjectId));
+    if (!gameObject) {
+        return 0;
+    }
+
+    for (GameObject *current = gameObject; current != nullptr; current = current->GetParent()) {
+        if (ManagedComponentProxy *managedProxy = FindManagedComponentOnGameObject(current, typeNameUtf8)) {
+            return ResolveManagedComponentHandle(managedProxy);
+        }
+    }
+
+    return 0;
+}
+
+int64_t __cdecl GetTransformComponentId(int64_t gameObjectId)
+{
+    Transform *transform = FindActiveSceneTransform(gameObjectId);
+    return transform ? static_cast<int64_t>(transform->GetComponentID()) : 0;
+}
+
+int32_t __cdecl SetComponentEnabled(int64_t componentId, int32_t enabled)
+{
+    Component *component = FindActiveSceneComponent(componentId);
+    if (!component) {
+        return 1;
+    }
+
+    component->SetEnabled(enabled != 0);
+    return 0;
 }
 
 int32_t __cdecl GetGameObjectWorldPosition(int64_t gameObjectId, float *x, float *y, float *z)
@@ -1841,8 +2048,10 @@ bool ManagedRuntimeHost::BindBridgeDelegates()
     std::string error;
     if (!InvokeManagedWithError(reinterpret_cast<register_native_api_fn>(m_registerNativeApiFn), error, &NativeLog,
                                 &FindGameObjectByName, &CreateGameObject, &CreatePrimitiveObject, &DestroyGameObject,
-                                &InstantiateGameObject, &GetGameObjectWorldPosition, &SetGameObjectWorldPosition,
-                                &GetGameObjectName, &SetGameObjectName, &SetGameObjectActive,
+                                &InstantiateGameObject, &AddManagedComponent, &GetManagedComponent,
+                                &GetManagedComponentInChildren, &GetManagedComponentInParent, &GetTransformComponentId,
+                                &SetComponentEnabled, &GetGameObjectWorldPosition,
+                                &SetGameObjectWorldPosition, &GetGameObjectName, &SetGameObjectName, &SetGameObjectActive,
                                 &GetGameObjectActiveSelf, &GetGameObjectActiveInHierarchy, &GetGameObjectTag,
                                 &SetGameObjectTag, &CompareGameObjectTag, &GetGameObjectLayer, &SetGameObjectLayer,
                                 &GetGameObjectLocalPosition, &SetGameObjectLocalPosition, &GetGameObjectWorldRotation,

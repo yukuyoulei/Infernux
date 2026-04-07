@@ -1,0 +1,1 @@
+powershell -ExecutionPolicy Bypass -File .\dev\build_engine_windows.ps1 -PythonSpec 3.13 -SkipManagedBuild

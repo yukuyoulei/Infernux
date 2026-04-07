@@ -12,6 +12,12 @@ def test_generated_runtime_stubs_include_extended_transform_bridge(tmp_path: Pat
     content = stubs_path.read_text(encoding="utf-8")
 
     assert "public readonly struct Quaternion" in content
+    assert "public abstract class Object" in content
+    assert "public abstract class Component : Object" in content
+    assert "public abstract class Behaviour : Component" in content
+    assert "public sealed class Transform : Component" in content
+    assert "public abstract class InxComponent : Behaviour" in content
+    assert "public abstract long GetInstanceID();" in content
     assert "public Quaternion rotation" in content
     assert "public Quaternion localRotation" in content
     assert "public Vector3 eulerAngles" in content
@@ -37,3 +43,25 @@ def test_generated_runtime_stubs_include_extended_transform_bridge(tmp_path: Pat
     assert "private delegate int TransformVectorDelegate" in content
     assert "private delegate int SetSiblingIndexDelegate" in content
     assert "private delegate int DetachChildrenDelegate" in content
+    assert "public T? AddComponent<T>() where T : InxComponent" in content
+    assert "public T? GetComponent<T>() where T : Component" in content
+    assert "public bool TryGetComponent<T>(out T? component) where T : Component" in content
+    assert "public T? GetComponentInChildren<T>() where T : Component" in content
+    assert "public T? GetComponentInParent<T>() where T : Component" in content
+    assert "public override string name" in content
+    assert "public bool CompareTag(string tag)" in content
+    assert "public abstract bool enabled { get; set; }" in content
+    assert "public bool isActiveAndEnabled => enabled && (gameObject?.activeInHierarchy ?? false);" in content
+    assert "public override long GetInstanceID()" in content
+    assert "return Managed.NativeApi.GetTransformComponentId(_gameObject.InstanceId);" in content
+    assert "Managed.NativeApi.SetComponentEnabled(ComponentId, value);" in content
+    assert "private delegate long AddManagedComponentDelegate" in content
+    assert "private delegate long GetManagedComponentDelegate" in content
+    assert "private delegate long GetManagedComponentInChildrenDelegate" in content
+    assert "private delegate long GetManagedComponentInParentDelegate" in content
+    assert "private delegate long GetTransformComponentIdDelegate(long gameObjectId);" in content
+    assert "private delegate int SetComponentEnabledDelegate(long componentId, int enabled);" in content
+    assert "internal static string GetManagedTypeName<T>() where T : InxComponent" in content
+    assert "internal static T? GetManagedComponent<T>(long handle) where T : InxComponent" in content
+    assert "internal static T? GetGameObjectComponent<T>(GameObject gameObject) where T : Component" in content
+    assert "if (typeof(T) == typeof(Transform))" in content

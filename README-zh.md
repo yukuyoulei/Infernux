@@ -93,9 +93,27 @@ The generated project targets `net8.0`, and the native runtime loads the resulti
 
 User gameplay scripts currently inherit from `InxComponent`.
 
+`Object`
+
+- Unity 风格的根基类，`GameObject` 与所有组件都继承自它
+- 公共属性：`name`
+- `GetInstanceID()`
+
+`Component`
+
+- 公共基类：`Transform` 与 `Behaviour` 都继承自它
+- 公共上下文：`gameObject`, `transform`
+- `name` 代理到所属的 `GameObject`
+- `CompareTag(string)`
+
+`Behaviour`
+
+- 位于 `Component` 与 `InxComponent` 之间的中间层
+- 公共状态：`enabled`, `isActiveAndEnabled`
+
 `InxComponent`
 
-- context properties: `gameObject`, `transform`, `Enabled`, `ExecutionOrder`, `ScriptGuid`
+- context properties: `gameObject`, `transform`, `Enabled`, `enabled`, `isActiveAndEnabled`, `ExecutionOrder`, `ScriptGuid`
 - lifecycle methods: `Awake`, `OnEnable`, `Start`, `Update(float deltaTime)`, `FixedUpdate(float fixedDeltaTime)`, `LateUpdate(float deltaTime)`, `OnDisable`, `OnDestroy`, `OnValidate`, `Reset`
 
 `GameObject`
@@ -104,6 +122,11 @@ User gameplay scripts currently inherit from `InxComponent`.
 - `Create(string? name = null)`
 - `CreatePrimitive(PrimitiveType, string? name = null)`
 - `Instantiate(GameObject, Transform? parent = null)`
+- `AddComponent<T>() where T : InxComponent`
+- `GetComponent<T>() where T : Component`
+- `TryGetComponent<T>(out T? component) where T : Component`
+- `GetComponentInChildren<T>() where T : Component`
+- `GetComponentInParent<T>() where T : Component`
 - `Destroy(GameObject?)`
 - `Destroy()`
 - `name`

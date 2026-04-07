@@ -132,7 +132,46 @@ namespace Infernux
         }
     }
 
-    public sealed class GameObject
+    public abstract class Object
+    {
+        public abstract string name { get; set; }
+        public abstract long GetInstanceID();
+
+        public override string ToString()
+        {
+            return name;
+        }
+    }
+
+    public abstract class Component : Object
+    {
+        public abstract GameObject? gameObject { get; }
+        public virtual Transform? transform => gameObject?.transform;
+        public override string name
+        {
+            get => gameObject?.name ?? string.Empty;
+            set
+            {
+                if (gameObject is GameObject owner)
+                {
+                    owner.name = value;
+                }
+            }
+        }
+
+        public bool CompareTag(string tag)
+        {
+            return gameObject?.CompareTag(tag) ?? false;
+        }
+    }
+
+    public abstract class Behaviour : Component
+    {
+        public abstract bool enabled { get; set; }
+        public bool isActiveAndEnabled => enabled && (gameObject?.activeInHierarchy ?? false);
+    }
+
+    public sealed class GameObject : Object
     {
         internal GameObject(long instanceId)
         {
@@ -140,10 +179,15 @@ namespace Infernux
         }
 
         public long InstanceId { get; }
-        public string name
+        public override string name
         {
             get => Managed.NativeApi.GetGameObjectName(InstanceId);
             set => Managed.NativeApi.SetGameObjectName(InstanceId, value);
+        }
+
+        public override long GetInstanceID()
+        {
+            return InstanceId;
         }
 
         public bool activeSelf => Managed.NativeApi.GetGameObjectActiveSelf(InstanceId);
@@ -183,9 +227,38 @@ namespace Infernux
         public static GameObject? Instantiate(GameObject original, Transform? parent = null)
         {
             ArgumentNullException.ThrowIfNull(original);
-            long parentId = parent?.gameObject.InstanceId ?? 0;
+            long parentId = parent?.gameObject?.InstanceId ?? 0;
             long instanceId = Managed.NativeApi.InstantiateGameObject(original.InstanceId, parentId);
             return instanceId != 0 ? new GameObject(instanceId) : null;
+        }
+
+        public T? AddComponent<T>() where T : InxComponent
+        {
+            long handle = Managed.NativeApi.AddManagedComponent(
+                InstanceId,
+                Managed.ManagedComponentBridge.GetManagedTypeName<T>());
+            return Managed.ManagedComponentBridge.GetManagedComponent<T>(handle);
+        }
+
+        public T? GetComponent<T>() where T : Component
+        {
+            return Managed.ManagedComponentBridge.GetGameObjectComponent<T>(this);
+        }
+
+        public bool TryGetComponent<T>(out T? component) where T : Component
+        {
+            component = GetComponent<T>();
+            return component is not null;
+        }
+
+        public T? GetComponentInChildren<T>() where T : Component
+        {
+            return Managed.ManagedComponentBridge.GetGameObjectComponentInChildren<T>(this);
+        }
+
+        public T? GetComponentInParent<T>() where T : Component
+        {
+            return Managed.ManagedComponentBridge.GetGameObjectComponentInParent<T>(this);
         }
 
         public static void Destroy(GameObject? target)
@@ -214,7 +287,7 @@ namespace Infernux
         }
     }
 
-    public sealed class Transform
+    public sealed class Transform : Component
     {
         private readonly GameObject _gameObject;
         private static readonly Vector3 ForwardAxis = new(0f, 0f, 1f);
@@ -226,7 +299,13 @@ namespace Infernux
             _gameObject = gameObject;
         }
 
-        public GameObject gameObject => _gameObject;
+        public override GameObject gameObject => _gameObject;
+        public override Transform transform => this;
+
+        public override long GetInstanceID()
+        {
+            return Managed.NativeApi.GetTransformComponentId(_gameObject.InstanceId);
+        }
 
         public Vector3 position
         {
@@ -389,7 +468,7 @@ namespace Infernux
             Transform? current = this.parent;
             while (current is not null)
             {
-                if (current.gameObject.InstanceId == parent.gameObject.InstanceId)
+                if (current._gameObject.InstanceId == parent._gameObject.InstanceId)
                 {
                     return true;
                 }
@@ -439,15 +518,32 @@ namespace Infernux
         }
     }
 
-    public abstract class InxComponent
+    public abstract class InxComponent : Behaviour
     {
         public long GameObjectId { get; private set; }
         public long ComponentId { get; private set; }
         public bool Enabled { get; private set; } = true;
         public int ExecutionOrder { get; private set; }
         public string ScriptGuid { get; private set; } = string.Empty;
-        public GameObject? gameObject => GameObjectId != 0 ? new GameObject(GameObjectId) : null;
-        public Transform? transform => gameObject?.transform;
+        public override GameObject? gameObject => GameObjectId != 0 ? new GameObject(GameObjectId) : null;
+        public override bool enabled
+        {
+            get => Enabled;
+            set
+            {
+                if (ComponentId != 0)
+                {
+                    Managed.NativeApi.SetComponentEnabled(ComponentId, value);
+                }
+
+                Enabled = value;
+            }
+        }
+
+        public override long GetInstanceID()
+        {
+            return ComponentId;
+        }
 
         internal void __UpdateContext(long gameObjectId, long componentId, bool enabled, int executionOrder, string? scriptGuid)
         {
@@ -521,6 +617,24 @@ namespace Infernux.Managed
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate long InstantiateGameObjectDelegate(long sourceGameObjectId, long parentGameObjectId);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long AddManagedComponentDelegate(long gameObjectId, IntPtr typeNameUtf8);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long GetManagedComponentDelegate(long gameObjectId, IntPtr typeNameUtf8);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long GetManagedComponentInChildrenDelegate(long gameObjectId, IntPtr typeNameUtf8);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long GetManagedComponentInParentDelegate(long gameObjectId, IntPtr typeNameUtf8);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate long GetTransformComponentIdDelegate(long gameObjectId);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int SetComponentEnabledDelegate(long componentId, int enabled);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int GetWorldPositionDelegate(long gameObjectId, out float x, out float y, out float z);
@@ -720,6 +834,12 @@ namespace Infernux.Managed
         private static CreatePrimitiveDelegate? _createPrimitive;
         private static DestroyGameObjectDelegate? _destroyGameObject;
         private static InstantiateGameObjectDelegate? _instantiateGameObject;
+        private static AddManagedComponentDelegate? _addManagedComponent;
+        private static GetManagedComponentDelegate? _getManagedComponent;
+        private static GetManagedComponentInChildrenDelegate? _getManagedComponentInChildren;
+        private static GetManagedComponentInParentDelegate? _getManagedComponentInParent;
+        private static GetTransformComponentIdDelegate? _getTransformComponentId;
+        private static SetComponentEnabledDelegate? _setComponentEnabled;
         private static GetWorldPositionDelegate? _getWorldPosition;
         private static SetWorldPositionDelegate? _setWorldPosition;
         private static GetGameObjectNameDelegate? _getGameObjectName;
@@ -773,6 +893,12 @@ namespace Infernux.Managed
             IntPtr createPrimitiveFn,
             IntPtr destroyGameObjectFn,
             IntPtr instantiateGameObjectFn,
+            IntPtr addManagedComponentFn,
+            IntPtr getManagedComponentFn,
+            IntPtr getManagedComponentInChildrenFn,
+            IntPtr getManagedComponentInParentFn,
+            IntPtr getTransformComponentIdFn,
+            IntPtr setComponentEnabledFn,
             IntPtr getWorldPositionFn,
             IntPtr setWorldPositionFn,
             IntPtr getGameObjectNameFn,
@@ -821,7 +947,10 @@ namespace Infernux.Managed
         {
             if (logFn == IntPtr.Zero || findGameObjectFn == IntPtr.Zero || createGameObjectFn == IntPtr.Zero ||
                 createPrimitiveFn == IntPtr.Zero || destroyGameObjectFn == IntPtr.Zero ||
-                instantiateGameObjectFn == IntPtr.Zero ||
+                instantiateGameObjectFn == IntPtr.Zero || addManagedComponentFn == IntPtr.Zero ||
+                getManagedComponentFn == IntPtr.Zero || getManagedComponentInChildrenFn == IntPtr.Zero ||
+                getManagedComponentInParentFn == IntPtr.Zero || getTransformComponentIdFn == IntPtr.Zero ||
+                setComponentEnabledFn == IntPtr.Zero ||
                 getWorldPositionFn == IntPtr.Zero ||
                 setWorldPositionFn == IntPtr.Zero || getGameObjectNameFn == IntPtr.Zero ||
                 setGameObjectNameFn == IntPtr.Zero || setGameObjectActiveFn == IntPtr.Zero ||
@@ -854,6 +983,18 @@ namespace Infernux.Managed
             _destroyGameObject = Marshal.GetDelegateForFunctionPointer<DestroyGameObjectDelegate>(destroyGameObjectFn);
             _instantiateGameObject =
                 Marshal.GetDelegateForFunctionPointer<InstantiateGameObjectDelegate>(instantiateGameObjectFn);
+            _addManagedComponent =
+                Marshal.GetDelegateForFunctionPointer<AddManagedComponentDelegate>(addManagedComponentFn);
+            _getManagedComponent =
+                Marshal.GetDelegateForFunctionPointer<GetManagedComponentDelegate>(getManagedComponentFn);
+            _getManagedComponentInChildren =
+                Marshal.GetDelegateForFunctionPointer<GetManagedComponentInChildrenDelegate>(getManagedComponentInChildrenFn);
+            _getManagedComponentInParent =
+                Marshal.GetDelegateForFunctionPointer<GetManagedComponentInParentDelegate>(getManagedComponentInParentFn);
+            _getTransformComponentId =
+                Marshal.GetDelegateForFunctionPointer<GetTransformComponentIdDelegate>(getTransformComponentIdFn);
+            _setComponentEnabled =
+                Marshal.GetDelegateForFunctionPointer<SetComponentEnabledDelegate>(setComponentEnabledFn);
             _getWorldPosition = Marshal.GetDelegateForFunctionPointer<GetWorldPositionDelegate>(getWorldPositionFn);
             _setWorldPosition = Marshal.GetDelegateForFunctionPointer<SetWorldPositionDelegate>(setWorldPositionFn);
             _getGameObjectName = Marshal.GetDelegateForFunctionPointer<GetGameObjectNameDelegate>(getGameObjectNameFn);
@@ -1004,6 +1145,101 @@ namespace Infernux.Managed
                 _instantiateGameObject ??
                 throw new InvalidOperationException("Native GameObject.Instantiate API is not registered.");
             return callback(sourceGameObjectId, parentGameObjectId);
+        }
+
+        public static long AddManagedComponent(long gameObjectId, string typeName)
+        {
+            AddManagedComponentDelegate callback =
+                _addManagedComponent ?? throw new InvalidOperationException("Native GameObject.AddComponent is not registered.");
+            IntPtr typeNamePtr = IntPtr.Zero;
+            try
+            {
+                typeNamePtr = Marshal.StringToCoTaskMemUTF8(typeName ?? string.Empty);
+                return callback(gameObjectId, typeNamePtr);
+            }
+            finally
+            {
+                if (typeNamePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(typeNamePtr);
+                }
+            }
+        }
+
+        public static long GetManagedComponent(long gameObjectId, string typeName)
+        {
+            GetManagedComponentDelegate callback =
+                _getManagedComponent ?? throw new InvalidOperationException("Native GameObject.GetComponent is not registered.");
+            IntPtr typeNamePtr = IntPtr.Zero;
+            try
+            {
+                typeNamePtr = Marshal.StringToCoTaskMemUTF8(typeName ?? string.Empty);
+                return callback(gameObjectId, typeNamePtr);
+            }
+            finally
+            {
+                if (typeNamePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(typeNamePtr);
+                }
+            }
+        }
+
+        public static long GetManagedComponentInChildren(long gameObjectId, string typeName)
+        {
+            GetManagedComponentInChildrenDelegate callback =
+                _getManagedComponentInChildren ??
+                throw new InvalidOperationException("Native GameObject.GetComponentInChildren is not registered.");
+            IntPtr typeNamePtr = IntPtr.Zero;
+            try
+            {
+                typeNamePtr = Marshal.StringToCoTaskMemUTF8(typeName ?? string.Empty);
+                return callback(gameObjectId, typeNamePtr);
+            }
+            finally
+            {
+                if (typeNamePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(typeNamePtr);
+                }
+            }
+        }
+
+        public static long GetManagedComponentInParent(long gameObjectId, string typeName)
+        {
+            GetManagedComponentInParentDelegate callback =
+                _getManagedComponentInParent ??
+                throw new InvalidOperationException("Native GameObject.GetComponentInParent is not registered.");
+            IntPtr typeNamePtr = IntPtr.Zero;
+            try
+            {
+                typeNamePtr = Marshal.StringToCoTaskMemUTF8(typeName ?? string.Empty);
+                return callback(gameObjectId, typeNamePtr);
+            }
+            finally
+            {
+                if (typeNamePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(typeNamePtr);
+                }
+            }
+        }
+
+        public static long GetTransformComponentId(long gameObjectId)
+        {
+            GetTransformComponentIdDelegate callback =
+                _getTransformComponentId ?? throw new InvalidOperationException("Native Transform.GetInstanceID is not registered.");
+            return callback(gameObjectId);
+        }
+
+        public static void SetComponentEnabled(long componentId, bool enabled)
+        {
+            SetComponentEnabledDelegate callback =
+                _setComponentEnabled ?? throw new InvalidOperationException("Native Component.enabled is not registered.");
+            if (callback(componentId, enabled ? 1 : 0) != 0)
+            {
+                throw new InvalidOperationException($"Failed to set enabled state for Component {componentId}.");
+            }
         }
 
         public static Vector3 GetWorldPosition(long gameObjectId)
@@ -1655,7 +1891,7 @@ namespace Infernux.Managed
         {
             try
             {
-                InxComponent component = GetComponent(handle);
+                InxComponent component = GetComponentByHandle(handle);
                 component.__UpdateContext(
                     gameObjectId,
                     componentId,
@@ -1679,6 +1915,12 @@ namespace Infernux.Managed
             IntPtr createPrimitiveFn,
             IntPtr destroyGameObjectFn,
             IntPtr instantiateGameObjectFn,
+            IntPtr addManagedComponentFn,
+            IntPtr getManagedComponentFn,
+            IntPtr getManagedComponentInChildrenFn,
+            IntPtr getManagedComponentInParentFn,
+            IntPtr getTransformComponentIdFn,
+            IntPtr setComponentEnabledFn,
             IntPtr getWorldPositionFn,
             IntPtr setWorldPositionFn,
             IntPtr getGameObjectNameFn,
@@ -1736,6 +1978,12 @@ namespace Infernux.Managed
                     createPrimitiveFn,
                     destroyGameObjectFn,
                     instantiateGameObjectFn,
+                    addManagedComponentFn,
+                    getManagedComponentFn,
+                    getManagedComponentInChildrenFn,
+                    getManagedComponentInParentFn,
+                    getTransformComponentIdFn,
+                    setComponentEnabledFn,
                     getWorldPositionFn,
                     setWorldPositionFn,
                     getGameObjectNameFn,
@@ -1795,7 +2043,7 @@ namespace Infernux.Managed
         {
             try
             {
-                InxComponent component = GetComponent(handle);
+                InxComponent component = GetComponentByHandle(handle);
                 switch ((ManagedLifecycleEvent)eventId)
                 {
                     case ManagedLifecycleEvent.Awake:
@@ -1841,7 +2089,124 @@ namespace Infernux.Managed
             }
         }
 
-        private static InxComponent GetComponent(long handle)
+        internal static string GetManagedTypeName<T>() where T : InxComponent
+        {
+            Type type = typeof(T);
+            return type.FullName ?? type.Name;
+        }
+
+        internal static T? GetManagedComponent<T>(long handle) where T : InxComponent
+        {
+            if (handle == 0)
+            {
+                return null;
+            }
+
+            InxComponent component = GetComponentByHandle(handle);
+            if (component is T typedComponent)
+            {
+                return typedComponent;
+            }
+
+            throw new InvalidCastException(
+                $"Managed component handle {handle} is '{component.GetType().FullName}', not '{typeof(T).FullName}'.");
+        }
+
+        internal static T? GetGameObjectComponent<T>(GameObject gameObject) where T : Component
+        {
+            ArgumentNullException.ThrowIfNull(gameObject);
+
+            if (typeof(T) == typeof(Transform))
+            {
+                return gameObject.transform as T;
+            }
+
+            return GetManagedGameObjectComponent<T>(gameObject.InstanceId);
+        }
+
+        internal static T? GetGameObjectComponentInChildren<T>(GameObject gameObject) where T : Component
+        {
+            ArgumentNullException.ThrowIfNull(gameObject);
+
+            if (typeof(T) == typeof(Transform))
+            {
+                return gameObject.transform as T;
+            }
+
+            return GetManagedGameObjectComponentInChildren<T>(gameObject.InstanceId);
+        }
+
+        internal static T? GetGameObjectComponentInParent<T>(GameObject gameObject) where T : Component
+        {
+            ArgumentNullException.ThrowIfNull(gameObject);
+
+            if (typeof(T) == typeof(Transform))
+            {
+                return gameObject.transform as T;
+            }
+
+            return GetManagedGameObjectComponentInParent<T>(gameObject.InstanceId);
+        }
+
+        private static T? GetManagedGameObjectComponent<T>(long gameObjectId) where T : Component
+        {
+            if (!typeof(InxComponent).IsAssignableFrom(typeof(T)))
+            {
+                throw new NotSupportedException(
+                    $"GetComponent<{typeof(T).Name}> currently supports Transform or managed InxComponent-derived types only.");
+            }
+
+            long handle = NativeApi.GetManagedComponent(gameObjectId, GetManagedTypeNameForLookup(typeof(T)));
+            return handle != 0 ? (T?)(object)GetManagedComponent(handle, typeof(T)) : null;
+        }
+
+        private static T? GetManagedGameObjectComponentInChildren<T>(long gameObjectId) where T : Component
+        {
+            if (!typeof(InxComponent).IsAssignableFrom(typeof(T)))
+            {
+                throw new NotSupportedException(
+                    $"GetComponentInChildren<{typeof(T).Name}> currently supports Transform or managed InxComponent-derived types only.");
+            }
+
+            long handle = NativeApi.GetManagedComponentInChildren(gameObjectId, GetManagedTypeNameForLookup(typeof(T)));
+            return handle != 0 ? (T?)(object)GetManagedComponent(handle, typeof(T)) : null;
+        }
+
+        private static T? GetManagedGameObjectComponentInParent<T>(long gameObjectId) where T : Component
+        {
+            if (!typeof(InxComponent).IsAssignableFrom(typeof(T)))
+            {
+                throw new NotSupportedException(
+                    $"GetComponentInParent<{typeof(T).Name}> currently supports Transform or managed InxComponent-derived types only.");
+            }
+
+            long handle = NativeApi.GetManagedComponentInParent(gameObjectId, GetManagedTypeNameForLookup(typeof(T)));
+            return handle != 0 ? (T?)(object)GetManagedComponent(handle, typeof(T)) : null;
+        }
+
+        private static string GetManagedTypeNameForLookup(Type type)
+        {
+            return type.FullName ?? type.Name;
+        }
+
+        private static InxComponent GetManagedComponent(long handle, Type expectedType)
+        {
+            if (!typeof(InxComponent).IsAssignableFrom(expectedType))
+            {
+                throw new ArgumentException("Expected managed component type must derive from InxComponent.", nameof(expectedType));
+            }
+
+            InxComponent component = GetComponentByHandle(handle);
+            if (expectedType.IsInstanceOfType(component))
+            {
+                return component;
+            }
+
+            throw new InvalidCastException(
+                $"Managed component handle {handle} is '{component.GetType().FullName}', not '{expectedType.FullName}'.");
+        }
+
+        private static InxComponent GetComponentByHandle(long handle)
         {
             if (!Components.TryGetValue(handle, out InxComponent? component) || component is null)
             {

@@ -62,6 +62,13 @@ class ManagedComponentProxy : public Component
         return m_handle != 0;
     }
 
+    [[nodiscard]] int64_t GetManagedHandle() const
+    {
+        return m_handle;
+    }
+
+    [[nodiscard]] bool EnsureManagedReady();
+
   private:
     bool EnsureCreated();
     bool SyncManagedContext();
