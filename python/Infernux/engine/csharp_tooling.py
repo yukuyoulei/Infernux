@@ -196,6 +196,95 @@ namespace Infernux
         {
             return gameObject?.CompareTag(tag) ?? false;
         }
+
+        public T? GetComponent<T>() where T : Component
+        {
+            return gameObject?.GetComponent<T>();
+        }
+
+        public Component? GetComponent(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return gameObject?.GetComponent(type);
+        }
+
+        public bool TryGetComponent<T>(out T? component) where T : Component
+        {
+            if (gameObject is GameObject owner)
+            {
+                return owner.TryGetComponent(out component);
+            }
+
+            component = null;
+            return false;
+        }
+
+        public bool TryGetComponent(Type type, out Component? component)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            if (gameObject is GameObject owner)
+            {
+                return owner.TryGetComponent(type, out component);
+            }
+
+            component = null;
+            return false;
+        }
+
+        public T[] GetComponents<T>() where T : Component
+        {
+            return gameObject?.GetComponents<T>() ?? Array.Empty<T>();
+        }
+
+        public Component[] GetComponents(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return gameObject?.GetComponents(type) ?? Array.Empty<Component>();
+        }
+
+        public T? GetComponentInChildren<T>() where T : Component
+        {
+            return gameObject?.GetComponentInChildren<T>();
+        }
+
+        public Component? GetComponentInChildren(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return gameObject?.GetComponentInChildren(type);
+        }
+
+        public T[] GetComponentsInChildren<T>() where T : Component
+        {
+            return gameObject?.GetComponentsInChildren<T>() ?? Array.Empty<T>();
+        }
+
+        public Component[] GetComponentsInChildren(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return gameObject?.GetComponentsInChildren(type) ?? Array.Empty<Component>();
+        }
+
+        public T? GetComponentInParent<T>() where T : Component
+        {
+            return gameObject?.GetComponentInParent<T>();
+        }
+
+        public Component? GetComponentInParent(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return gameObject?.GetComponentInParent(type);
+        }
+
+        public T[] GetComponentsInParent<T>() where T : Component
+        {
+            return gameObject?.GetComponentsInParent<T>() ?? Array.Empty<T>();
+        }
+
+        public Component[] GetComponentsInParent(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return gameObject?.GetComponentsInParent(type) ?? Array.Empty<Component>();
+        }
     }
 
     public abstract class Behaviour : Component
