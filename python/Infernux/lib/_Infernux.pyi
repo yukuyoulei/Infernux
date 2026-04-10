@@ -16,7 +16,7 @@ Provides IDE auto-completion and type checking for:
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, overload
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tuple, Union, overload
 from enum import IntEnum
 
 import numpy as np
@@ -1042,6 +1042,8 @@ class Scene:
 
 class SceneManager:
     """Singleton scene manager."""
+
+    active_scene: ClassVar[Optional[Scene]]
 
     @staticmethod
     def instance() -> SceneManager: ...

@@ -113,6 +113,19 @@ class GameObject
     }
 
     // ========================================================================
+    // DontDestroyOnLoad (Unity: Object.DontDestroyOnLoad)
+    // ========================================================================
+
+    [[nodiscard]] bool IsPersistent() const
+    {
+        return m_persistent;
+    }
+    void SetPersistent(bool persistent)
+    {
+        m_persistent = persistent;
+    }
+
+    // ========================================================================
     // Prefab instance tracking
     // ========================================================================
 
@@ -427,6 +440,7 @@ class GameObject
     uint64_t m_id;
     bool m_active = true;
     bool m_isStatic = false;
+    bool m_persistent = false;
     std::string m_tag = "Untagged";
     int m_layer = 0; // Default layer
 
