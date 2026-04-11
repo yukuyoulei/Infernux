@@ -139,6 +139,25 @@ def _iter_asset_move_pairs(old_path: str, new_path: str):
         yield old_path, new_path
 
 
+def _update_build_settings_scene_path(old_path: str, new_path: str):
+    """Replace *old_path* with *new_path* in BuildSettings.json scene list."""
+    try:
+        from .build_settings_panel import load_build_settings, save_build_settings
+        settings = load_build_settings()
+        scenes = settings.get("scenes", [])
+        old_norm = os.path.normcase(os.path.abspath(old_path))
+        changed = False
+        for i, s in enumerate(scenes):
+            if os.path.normcase(os.path.abspath(s)) == old_norm:
+                scenes[i] = os.path.abspath(new_path)
+                changed = True
+        if changed:
+            settings["scenes"] = scenes
+            save_build_settings(settings)
+    except Exception as _exc:
+        Debug.log(f"[BuildSettings] Failed to update scene path: {_exc}")
+
+
 def _notify_asset_moved(old_path: str, new_path: str, asset_database=None):
     from Infernux.core.assets import AssetManager
     from . import asset_inspector
@@ -155,6 +174,10 @@ def _notify_asset_moved(old_path: str, new_path: str, asset_database=None):
     except Exception as _exc:
         Debug.log(f"[Suppressed] {type(_exc).__name__}: {_exc}")
         pass
+
+    # Update BuildSettings.json when a .scene file is renamed/moved
+    if old_path.lower().endswith(".scene"):
+        _update_build_settings_scene_path(old_path, new_path)
 
     asset_inspector.invalidate_asset(old_path)
     asset_inspector.invalidate_asset(new_path)

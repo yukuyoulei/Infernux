@@ -513,13 +513,23 @@ class InxMaterial
     /// @brief Create the error material (purple-black checkerboard for shader mismatch)
     static std::shared_ptr<InxMaterial> CreateErrorMaterial();
 
-  private:
-    friend class MaterialLoader;
+    // ========================================================================
+    // Clone (Unity-style Object.Instantiate for materials)
+    // ========================================================================
+
+    /// @brief Create a deep copy of this material (Unity: Object.Instantiate).
+    /// Copies all properties, shader names, and render state.
+    /// GPU-transient state (pipelines, UBO) is NOT copied — lazily recreated.
+    /// The clone has no GUID and no file path (runtime-only instance).
+    [[nodiscard]] std::shared_ptr<InxMaterial> Clone() const;
 
     void SetGuid(const std::string &guid)
     {
         m_guid = guid;
     }
+
+  private:
+    friend class MaterialLoader;
 
     std::string m_name;
     std::string m_guid;

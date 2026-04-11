@@ -582,3 +582,17 @@ class Material:
 
     def __hash__(self):
         return hash(self.guid)
+
+    # ==========================================================================
+    # Clone / Instantiate (Unity-style)
+    # ==========================================================================
+
+    def clone(self) -> "Material":
+        """Create a deep copy of this material (Unity: ``new Material(original)``).
+
+        All properties, shader names, and render state are copied.
+        Texture references remain shared (same as Unity).
+        The clone is a runtime-only instance with no GUID or file path.
+        """
+        cloned_native = self._native.clone()
+        return Material(cloned_native)

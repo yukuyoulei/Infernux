@@ -546,7 +546,22 @@ void RegisterResourceBindings(py::module_ &m)
         .def("has_override", &InxMaterial::HasOverride, py::arg("flag"),
              "Check if a RenderState field is user-overridden")
         .def("sync_alpha_clip_property", &InxMaterial::SyncAlphaClipProperty,
-             "Sync internal _AlphaClipThreshold material property from RenderState");
+             "Sync internal _AlphaClipThreshold material property from RenderState")
+        // Clone / Instantiate (Unity-style Object.Instantiate for materials)
+        .def("clone", &InxMaterial::Clone,
+             "Create a deep copy of this material (Unity: new Material(original)). "
+             "Copies all properties, shader names, and render state. "
+             "GPU state is lazily recreated. The clone has no GUID (runtime-only).")
+        .def_static(
+            "instantiate",
+            [](const std::shared_ptr<InxMaterial> &original) -> std::shared_ptr<InxMaterial> {
+                if (!original)
+                    return nullptr;
+                return original->Clone();
+            },
+            py::arg("original"),
+            "Clone a material (Unity: Object.Instantiate). Deep-copies all properties; "
+            "shader and texture references are shared. Returns a new runtime material instance.");
 
     // RenderStateOverride — bitmask flags for per-material render state overrides
     py::enum_<RenderStateOverride>(m, "RenderStateOverride", py::arithmetic())

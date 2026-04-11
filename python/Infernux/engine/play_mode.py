@@ -709,6 +709,10 @@ class PlayModeManager(PlayModeSerializationMixin):
             target_type_name = state.get("type_name") or getattr(old_comp, "type_name", type(old_comp).__name__)
             component_class = reloaded_by_name.get(target_type_name)
 
+            # Class was likely renamed — if exactly one subclass exists, use it.
+            if component_class is None and len(reloaded_classes) == 1:
+                component_class = reloaded_classes[0]
+
             if component_class is None:
                 Debug.log_error(
                     f"Failed to reload component '{target_type_name}' from {os.path.basename(script_path_abs)}: "

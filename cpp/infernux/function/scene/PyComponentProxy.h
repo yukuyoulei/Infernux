@@ -146,12 +146,17 @@ class PyComponentProxy : public Component
   private:
     void BindPythonMirror();
     void SyncPythonMirror() const;
+    void RefreshCoroutineSchedulerFlag();
 
     py::object m_pyComponent;
     std::string m_typeName;
     std::string m_typeGuid;   // Stable type GUID (hash of module.classname)
     std::string m_scriptGuid; // Stable GUID for the script asset
     bool m_executeInEditMode = false;
+    bool m_overridesUpdate = true;
+    bool m_overridesFixedUpdate = true;
+    bool m_overridesLateUpdate = true;
+    bool m_hasCoroutineScheduler = false;
 };
 
 } // namespace infernux

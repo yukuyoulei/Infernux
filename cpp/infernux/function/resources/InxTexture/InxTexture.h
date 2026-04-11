@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
 namespace infernux
@@ -106,6 +107,14 @@ class InxTexture
     /// Load (or refresh) import settings from the .meta file.
     /// @return true if .meta was found and parsed.
     bool LoadImportSettings(const std::string &filePath);
+
+    // ── Clone (Unity-style Object.Instantiate) ─────────────────────────────
+
+    /// @brief Create a copy of this texture metadata (import settings).
+    /// GPU pixel data is NOT duplicated — the clone references the same
+    /// underlying image file.  Matches Unity behavior where Instantiate
+    /// on a Texture2D copies the CPU-side metadata.
+    [[nodiscard]] std::shared_ptr<InxTexture> Clone() const;
 
   private:
     std::string m_guid;
