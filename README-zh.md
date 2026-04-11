@@ -24,6 +24,16 @@
   <a href="#快速开始">快速开始</a>
 </p>
 
+## 演示画面
+
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Infernux 编辑器中实时渲染的 10000 个立方体" width="100%" />
+</p>
+
+<p align="center">
+  <em>30 FPS 实机录制：编辑器进入 Play 模式后不做任何操作，屏幕上持续渲染 10000 个立方体，并展示整片场景中的受光变化。</em>
+</p>
+
 ---
 
 ## 项目概览

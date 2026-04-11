@@ -24,6 +24,16 @@
   <a href="#quick-start">Quick Start</a>
 </p>
 
+## Live Demo
+
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="10,000 animated cubes rendered live in the Infernux editor" width="100%" />
+</p>
+
+<p align="center">
+  <em>Infernux is left in Play mode with no interaction while 10,000 cubes continue rendering and their lighting changes across the full scene.</em>
+</p>
+
 ---
 
 ## Overview
