@@ -23,6 +23,7 @@ class TextureType(IntEnum):
     DEFAULT = 0
     NORMAL_MAP = 1
     UI = 2
+    SPRITE = 3
 
 
 class WrapMode(IntEnum):
@@ -74,13 +75,19 @@ class TextureImportSettings:
     aniso_level: int = 1
 
     def _sync_derived_fields(self):
-        """Re-derive sRGB from texture_type. Call after mutating texture_type.
+        """Re-derive settings from texture_type. Call after mutating texture_type.
 
-        NORMAL_MAP forces sRGB off (user cannot override).
-        Other modes leave the current sRGB value unchanged.
+        NORMAL_MAP forces sRGB off.
+        SPRITE forces point filtering, clamp wrapping, no mipmaps.
+        Other modes leave the current values unchanged.
         """
         if self.texture_type == TextureType.NORMAL_MAP:
             self.srgb = False
+        elif self.texture_type == TextureType.SPRITE:
+            self.filter_mode = FilterMode.POINT
+            self.wrap_mode = WrapMode.CLAMP
+            self.generate_mipmaps = False
+            self.srgb = True
 
     # ── Serialization ──────────────────────────────────────────────────
 
@@ -98,7 +105,7 @@ class TextureImportSettings:
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "TextureImportSettings":
         tt_str = d.get("texture_type", "default")
-        tt_map = {"default": TextureType.DEFAULT, "normal_map": TextureType.NORMAL_MAP, "ui": TextureType.UI}
+        tt_map = {"default": TextureType.DEFAULT, "normal_map": TextureType.NORMAL_MAP, "ui": TextureType.UI, "sprite": TextureType.SPRITE}
         tt = tt_map.get(tt_str, TextureType.DEFAULT)
         return cls(
             texture_type=tt,

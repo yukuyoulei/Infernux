@@ -26,7 +26,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from Infernux.lib import InxGUIContext
 from Infernux.engine.i18n import t
 from Infernux.core.asset_types import (
+    FilterMode,
     TextureType,
+    WrapMode,
     ShaderAssetInfo,
     FontAssetInfo,
     read_meta_file,
@@ -181,8 +183,17 @@ def _ensure_categories():
             FieldDef("texture_type", "asset.texture_type", WidgetType.COMBO,
                      [("asset.tex_default", TextureType.DEFAULT),
                       ("asset.tex_normalmap", TextureType.NORMAL_MAP),
-                      ("asset.tex_ui", TextureType.UI)]),
+                      ("asset.tex_ui", TextureType.UI),
+                      ("asset.tex_sprite", TextureType.SPRITE)]),
             FieldDef("srgb", "asset.srgb", WidgetType.CHECKBOX),
+            FieldDef("filter_mode", "asset.filter_mode", WidgetType.COMBO,
+                     [("asset.filter_point", FilterMode.POINT),
+                      ("asset.filter_bilinear", FilterMode.BILINEAR),
+                      ("asset.filter_trilinear", FilterMode.TRILINEAR)]),
+            FieldDef("wrap_mode", "asset.wrap_mode", WidgetType.COMBO,
+                     [("asset.wrap_repeat", WrapMode.REPEAT),
+                      ("asset.wrap_clamp", WrapMode.CLAMP),
+                      ("asset.wrap_mirror", WrapMode.MIRROR)]),
             FieldDef("max_size", "asset.max_size", WidgetType.COMBO,
                      [(str(s), s) for s in
                       (32, 64, 128, 256, 512, 1024, 2048, 4096, 8192)]),
