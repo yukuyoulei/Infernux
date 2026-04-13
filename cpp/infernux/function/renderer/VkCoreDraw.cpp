@@ -570,13 +570,13 @@ void InxVkCoreModular::DrawSceneFiltered(VkCommandBuffer cmdBuf, uint32_t width,
             continue;
         }
 
-        // Check GPU buffers for this entry
-        const auto &bufIt = entry.bufIt;
+        // Check GPU buffers for this entry — fresh lookup to avoid stale iterators
+        auto bufIt = m_perObjectBuffers.find(dc.objectId);
         if (bufIt == m_perObjectBuffers.end() || !bufIt->second.vertexBuffer || !bufIt->second.indexBuffer) {
             static int bufWarnCount = 0;
             if (bufWarnCount++ < 10) {
-                INXLOG_WARN("[DrawSceneFiltered] no GPU buffers for objectId=", dc.objectId, " material='",
-                            matRaw->GetName(), "' queue=", matRaw->GetRenderQueue());
+                // INXLOG_WARN("[DrawSceneFiltered] no GPU buffers for objectId=", dc.objectId, " material='",
+                //             matRaw->GetName(), "' queue=", matRaw->GetRenderQueue());
             }
             emitBatch();
             continue;
