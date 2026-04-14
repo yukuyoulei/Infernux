@@ -56,6 +56,7 @@ class PrimitiveType(IntEnum):
     Capsule: int
     Cylinder: int
     Plane: int
+    Quad: int
 
 
 class Space(IntEnum):
@@ -730,6 +731,7 @@ class MeshRenderer(Component):
     @property
     def mesh_name(self) -> str: ...
     def get_mesh_asset(self) -> Optional[InxMesh]: ...
+    def set_primitive_mesh(self, type: PrimitiveType) -> None: ...
 
     @property
     def vertex_count(self) -> int: ...
