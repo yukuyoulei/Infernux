@@ -633,6 +633,14 @@ class PlayModeManager(PlayModeSerializationMixin):
 
         self._restore_pending_py_components()
 
+        # Force-init SpriteRenderer wrappers so their materials (texture,
+        # color, uvRect) are created before the first render frame.
+        try:
+            from Infernux.components.builtin.sprite_renderer import SpriteRenderer
+            SpriteRenderer.init_all_in_scene()
+        except Exception as exc:
+            Debug.log_internal(f"SpriteRenderer init after rebuild: {exc}")
+
         if restore_scene_path:
             self._restore_scene_file_path()
 

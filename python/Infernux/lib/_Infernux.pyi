@@ -752,6 +752,16 @@ class MeshRenderer(Component):
     def deserialize(self, json_str: str) -> None: ...
 
 
+class SpriteRenderer(MeshRenderer):
+    """Sprite rendering component — renders a single frame on a Quad mesh."""
+
+    sprite_guid: str
+    frame_index: int
+    sprite_color: Tuple[float, float, float, float]
+    flip_x: bool
+    flip_y: bool
+
+
 class Light(Component):
     """Light component (Directional, Point, Spot, Area)."""
 
