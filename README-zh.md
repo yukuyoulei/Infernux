@@ -5,7 +5,7 @@
 <h1 align="center">Infernux</h1>
 
 <p align="center">
-  <strong>开源游戏引擎，采用 C++17 / Vulkan 原生运行时，以及负责生产工作流的 Python 层。</strong>
+  <strong>Open-source game engine with a C++17 / Vulkan runtime and a Python production layer.</strong>
 </p>
 
 <p align="center">
@@ -18,43 +18,91 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
-  <a href="https://chenlizheme.github.io/Infernux/">官网</a> ·
-  <a href="https://chenlizheme.github.io/Infernux/wiki.html">文档</a> ·
-  <a href="#快速开始">快速开始</a>
+  <a href="README.md">中文</a> ·
+  <a href="https://chenlizheme.github.io/Infernux/">Website</a> ·
+  <a href="https://chenlizheme.github.io/Infernux/wiki.html">Docs</a> ·
+  <a href="#quick-start">Quick Start</a>
 </p>
 
-## 运行画面
+## Runtime Capture
 
 <p align="center">
-  <img src="docs/assets/demo.png" alt="Infernux 编辑器中运行 10000 个立方体场景的静态截图" width="100%" />
+  <img src="docs/assets/demo.png" alt="Editor capture showing 10,000 cubes rendered in Infernux" width="100%" />
 </p>
 
 <p align="center">
-  <em>编辑器处于 Play 模式时的实际运行画面截图。</em>
+  <em>Editor session left running in Play mode while the scene continues to render at runtime.</em>
 </p>
 
-## 项目概览
+## Overview
 
-Infernux 是一个从零开始构建的游戏引擎项目，目标不是把运行时和编辑器变成黑盒，而是让开发者能够真正掌控运行时能力、编辑器工作流与脚本层扩展面。
+Infernux is a from-scratch engine for developers who want control over the runtime, the editor workflow, and the scripting surface instead of treating the engine as a sealed product.
 
-当前架构由三部分组成：
+The project combines three layers:
 
-Infernux 基于 MIT 协议发布，详见 `LICENSE`。
-## 快速开始
+- A native C++17 / Vulkan runtime for rendering, scene systems, physics, audio, and platform services.
+- A pybind11 bridge that exposes the native runtime to Python.
+- A Python layer for gameplay, editor tooling, content workflows, build automation, and render authoring.
 
-### 环境要求
+The architectural goal is straightforward: keep the hot path native, keep iteration fast, and keep the codebase understandable enough that teams can extend it without reverse-engineering hidden policy.
+
+## Current Scope
+
+Infernux is currently a Windows-first technical preview. The project already contains a usable editor/runtime core, but it should still be evaluated as an actively evolving engine rather than a finished commercial platform.
+
+Core capabilities available today include:
+
+- Vulkan forward and deferred rendering, PBR, cascaded shadows, MSAA, shader reflection, and post-processing.
+- RenderGraph and RenderStack APIs authored from Python.
+- Jolt physics integration with rigidbodies, colliders, scene queries, callbacks, and layer filtering.
+- GUID-based assets, dependency tracking, scene serialization, prefab workflows, and play-mode isolation.
+- An integrated editor with Hierarchy, Inspector, Scene View, Game View, Project, Console, UI editing, and build settings.
+- Python-side component lifecycle, coroutines, serialized fields, and script reload support.
+- Basic runtime UI primitives including Canvas, Text, Image, Button, and pointer events.
+- Packaging paths for the Hub, a standalone bundle, and a Windows installer.
+
+## Implemented C# Bridge Surface
+
+The repository already includes a first working slice of managed C# runtime bridging so `MonoBehaviour` scripts inside `Infernux.GameScripts.dll` can drive scene objects directly. At the moment, this layer is Windows-first.
+
+- Lifecycle bridging: `Awake`, `OnEnable`, `Start`, `Update(float)`, `FixedUpdate(float)`, `LateUpdate(float)`, `OnDisable`, `OnDestroy`, `OnValidate`, and `Reset`.
+- Component context syncing: `GameObjectId`, `ComponentId`, `enabled`, `ExecutionOrder`, and `ScriptGuid` are synchronized into the managed side.
+- `GameObject` bridging: `Find`, `Create`, `CreatePrimitive`, `Instantiate`, `Destroy`, `SetActive`, plus `name`, `activeSelf`, `activeInHierarchy`, `tag`, `layer`, and `transform`.
+- Component access bridging: `AddComponent<T>()`, `GetComponent`, `TryGetComponent`, `GetComponents`, `GetComponentInChildren`, `GetComponentsInChildren`, `GetComponentInParent`, and `GetComponentsInParent`.
+- `Transform` property bridging: `position`, `localPosition`, `localScale`, `rotation`, `localRotation`, `eulerAngles`, `localEulerAngles`, `lossyScale`, `parent`, `childCount`, and `root`.
+- `Transform` operation bridging: `Translate`, `TranslateLocal`, `Rotate`, `RotateAround`, `LookAt`, `TransformPoint`, `InverseTransformPoint`, `TransformDirection`, `InverseTransformDirection`, `TransformVector`, and `InverseTransformVector`.
+- Hierarchy bridging: `SetParent`, `GetChild`, `Find`, `DetachChildren`, `GetSiblingIndex`, `SetSiblingIndex`, `SetAsFirstSibling`, `SetAsLastSibling`, and `IsChildOf`.
+- Debug bridging: `Debug.Log`, `Debug.LogWarning`, and `Debug.LogError` are routed back into the native logging system.
+
+Current limitations:
+
+- Managed C# runtime hosting is currently supported on Windows only.
+- The current `GetComponent*` family on the C# side is confirmed for `Transform` and managed `MonoBehaviour`-derived components; direct bridging for additional native built-in components is still being expanded.
+
+## Architecture
+
+| Layer | Responsibility |
+|:------|:---------------|
+| C++17 / Vulkan | Rendering, resource ownership, scene systems, physics, audio, platform integration |
+| pybind11 bridge | Native bindings exposed to Python |
+| Python | Gameplay, editor logic, tooling, automation, render authoring |
+
+This split keeps performance-sensitive systems in native code while leaving day-to-day production code in a language that is easier to iterate on and easier to connect to external tooling and data pipelines.
+
+## Quick Start
+
+### Prerequisites
 
 <details>
 <summary><b>Windows</b></summary>
 
-| 依赖 | 版本 |
-|:-----|:-----|
-| Windows | 10 / 11（64 位） |
+| Dependency | Version |
+|:-----------|:--------|
+| Windows | 10 / 11 (64-bit) |
 | Python | 3.12+ |
 | Vulkan SDK | 1.3+ |
 | CMake | 3.22+ |
-| Visual Studio | 2022（MSVC v143） |
+| Visual Studio | 2022 (MSVC v143) |
 | pybind11 | 2.11+ |
 
 </details>
@@ -62,17 +110,17 @@ Infernux 基于 MIT 协议发布，详见 `LICENSE`。
 <details>
 <summary><b>macOS</b></summary>
 
-| 依赖 | 版本 |
-|:-----|:-----|
+| Dependency | Version |
+|:-----------|:--------|
 | macOS | 12+ |
 | Python | 3.12+ |
-| Vulkan SDK | 1.3+（LunarG SDK + MoltenVK） |
+| Vulkan SDK | 1.3+ (LunarG SDK with MoltenVK) |
 | CMake | 3.22+ |
 | Ninja | 1.10+ |
-| Xcode Command Line Tools | 最新版 |
+| Xcode Command Line Tools | Latest |
 | pybind11 | 2.11+ |
 
-安装 Vulkan SDK 后，先执行环境脚本：
+Install the Vulkan SDK from <https://vulkan.lunarg.com/sdk/home> and source the environment script after installation.
 
 ```bash
 source ~/VulkanSDK/<version>/setup-env.sh
@@ -81,22 +129,22 @@ brew install cmake ninja
 
 </details>
 
-你可以使用任意 Python 3.12 环境。下面示例使用 Conda，因为这是当前仓库里最常见的工作流。
+Any Python 3.12 environment works. The commands below use Conda because that is the most common workflow in this repository.
 
-### 克隆仓库
+### Clone
 
 ```bash
 git clone --recurse-submodules https://github.com/ChenlizheMe/Infernux.git
 cd Infernux
 ```
 
-如果之前没有带上子模块：
+If the repository was cloned without submodules:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-### 构建引擎
+### Build
 
 ```bash
 conda create -n infengine python=3.12 -y
@@ -106,20 +154,20 @@ cmake --preset release
 cmake --build --preset release
 ```
 
-在 macOS 上，将 `release` 替换为 `release-macos`。
+On macOS, replace `release` with `release-macos`.
 
-构建流程会编译原生模块、复制运行时依赖，并把 Python 包安装进当前环境，使你可以直接在工作区中 `import Infernux`。
+The build copies the native module and runtime dependencies into the Python package so `import Infernux` works directly from the active environment.
 
-### 以开发模式启动 Hub
+### Launch the Hub in development mode
 
 ```bash
 conda activate infengine
 python packaging/launcher.py
 ```
 
-开发模式使用当前 Python 环境和本地构建产物，不会安装 Hub 的托管运行时。
+Development mode uses the current Python environment and local build outputs. It does not install the Hub's managed runtime.
 
-### 运行测试
+### Run tests
 
 ```bash
 conda activate infengine
@@ -127,13 +175,13 @@ cd python
 python -m pytest test/ -v
 ```
 
-## 文档
+## Documentation
 
-- 官网：<https://chenlizheme.github.io/Infernux/>
-- 文档入口：<https://chenlizheme.github.io/Infernux/wiki.html>
-- API 参考：从 Python 包自动生成，并发布到 `docs/wiki/site/`
+- Website: <https://chenlizheme.github.io/Infernux/>
+- Documentation hub: <https://chenlizheme.github.io/Infernux/wiki.html>
+- API reference: generated from the Python package and published under `docs/wiki/site/`
 
-本地重新生成 API Markdown 和静态站点：
+To regenerate the API markdown and static site locally:
 
 ```bash
 conda activate infengine
@@ -141,31 +189,31 @@ python docs/wiki/generate_api_docs.py
 python -m mkdocs build --clean -f docs/wiki/mkdocs.yml
 ```
 
-对应的 CMake 目标是 `generate_api_docs` 和 `build_wiki_html`。
+Equivalent CMake targets are `generate_api_docs` and `build_wiki_html`.
 
-## 打包与分发
+## Packaging
 
-Hub 目前支持两条分发路径。
+Two distribution paths are currently supported for the Hub.
 
-### 独立目录打包
+### Standalone bundle
 
 ```bash
 cmake --build --preset packaging
 ```
 
-这会生成位于 `dist/Infernux Hub/` 的 PyInstaller 目录。
+This produces the portable PyInstaller output under `dist/Infernux Hub/`.
 
-### Windows 安装器
+### Windows installer
 
 ```bash
 cmake --build --preset packaging-installer
 ```
 
-这会生成图形化 Windows 安装器。安装流程会为当前主机准备匹配的 Python 3.12 运行时，再基于这套托管运行时为项目创建独立环境。
+This produces the graphical Windows installer, which stages the matching Python 3.12 runtime for the host architecture and provisions project runtimes from that managed base.
 
-## 引用
+## Citation
 
-如果你在论文、技术报告或公开材料中使用 Infernux，可以按软件条目引用：
+If you use Infernux in research, technical writing, or published work, cite it as software:
 
 ```bibtex
 @software{chen2026infernux,
@@ -178,16 +226,16 @@ cmake --build --preset packaging-installer
 }
 ```
 
-## 参与贡献
+## Contributing
 
-当前阶段，Bug 报告、功能建议和工作流反馈都很有价值。提交 issue 时，建议附带引擎版本、环境信息、复现步骤，以及问题位于原生运行时、Python 层还是打包链路。
+Bug reports, feature requests, and workflow feedback are all useful at the current stage. When filing an issue, include the engine version, environment details, reproduction steps, and whether the problem sits in the native runtime, the Python layer, or packaging.
 
-贡献和支持相关说明见：
+Contribution and support policies live in:
 
 - `CONTRIBUTING.md`
 - `SECURITY.md`
 - `SUPPORT.md`
 
-## 许可证
+## License
 
-Infernux 基于 MIT 协议发布，详见 `LICENSE`。
+Infernux is released under the MIT License. See `LICENSE` for details.
