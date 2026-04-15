@@ -234,10 +234,14 @@ class MaterialPipelineManager
 
     // Vulkan Pipeline Cache for faster recreation
     VkPipelineCache m_vkPipelineCache = VK_NULL_HANDLE;
-public:
-    VkPipelineCache GetVkPipelineCache() const { return m_vkPipelineCache; }
-private:
 
+  public:
+    VkPipelineCache GetVkPipelineCache() const
+    {
+        return m_vkPipelineCache;
+    }
+
+  private:
     // Default material render data
     MaterialRenderData *m_defaultRenderData = nullptr;
 
