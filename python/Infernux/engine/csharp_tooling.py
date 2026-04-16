@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 
 
@@ -289,8 +289,13 @@ namespace Infernux
         public void GetComponentsInChildren<T>(bool includeInactive, List<T> results) where T : Component
         {
             ArgumentNullException.ThrowIfNull(results);
+            if (gameObject is GameObject owner)
+            {
+                owner.GetComponentsInChildren(includeInactive, results);
+                return;
+            }
+
             results.Clear();
-            results.AddRange(GetComponentsInChildren<T>(includeInactive));
         }
 
         public Component[] GetComponentsInChildren(Type type)
@@ -524,8 +529,7 @@ namespace Infernux
         public void GetComponentsInChildren<T>(bool includeInactive, List<T> results) where T : Component
         {
             ArgumentNullException.ThrowIfNull(results);
-            results.Clear();
-            results.AddRange(GetComponentsInChildren<T>(includeInactive));
+            Managed.ManagedComponentBridge.GetGameObjectComponentsInChildren(this, includeInactive, results);
         }
 
         public Component[] GetComponentsInChildren(Type type)
@@ -2575,6 +2579,24 @@ namespace Infernux.Managed
             return GetGameObjectComponentsInChildren<T>(gameObject, false);
         }
 
+        internal static void GetGameObjectComponentsInChildren<T>(GameObject gameObject, List<T> results) where T : Component
+        {
+            GetGameObjectComponentsInChildren(gameObject, false, results);
+        }
+
+        internal static void GetGameObjectComponentsInChildren<T>(GameObject gameObject, bool includeInactive, List<T> results) where T : Component
+        {
+            ArgumentNullException.ThrowIfNull(gameObject);
+            ArgumentNullException.ThrowIfNull(results);
+
+            results.Clear();
+            Component[] components = GetGameObjectComponentsInChildren(gameObject, typeof(T), includeInactive);
+            for (int i = 0; i < components.Length; i++)
+            {
+                results.Add((T)components[i]);
+            }
+        }
+
         internal static T[] GetGameObjectComponentsInChildren<T>(GameObject gameObject, bool includeInactive) where T : Component
         {
             ArgumentNullException.ThrowIfNull(gameObject);
@@ -3070,3 +3092,4 @@ def ensure_csharp_tooling(project_dir: str, project_name: str = "") -> None:
     with open(gitignore_path, "w", encoding="utf-8") as f:
         for line in existing_lines:
             f.write(f"{line}\n")
+

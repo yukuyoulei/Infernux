@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -99,6 +99,8 @@ def test_generated_runtime_stubs_include_extended_transform_bridge(tmp_path: Pat
     assert "internal static Component[] GetGameObjectComponents(GameObject gameObject, Type type)" in content
     assert "internal static T[] GetGameObjectComponentsInChildren<T>(GameObject gameObject) where T : Component" in content
     assert "internal static T[] GetGameObjectComponentsInChildren<T>(GameObject gameObject, bool includeInactive) where T : Component" in content
+    assert "internal static void GetGameObjectComponentsInChildren<T>(GameObject gameObject, List<T> results) where T : Component" in content
+    assert "internal static void GetGameObjectComponentsInChildren<T>(GameObject gameObject, bool includeInactive, List<T> results) where T : Component" in content
     assert "internal static Component[] GetGameObjectComponentsInChildren(GameObject gameObject, Type type)" in content
     assert "internal static Component[] GetGameObjectComponentsInChildren(GameObject gameObject, Type type, bool includeInactive)" in content
     assert "internal static T[] GetGameObjectComponentsInParent<T>(GameObject gameObject) where T : Component" in content
@@ -111,3 +113,4 @@ def test_generated_runtime_stubs_include_extended_transform_bridge(tmp_path: Pat
     assert "private static void CollectComponentsOnGameObject(GameObject gameObject, Type expectedType, List<Component> results)" in content
     assert "private static void CollectComponentsInChildren(GameObject gameObject, Type expectedType, bool includeInactive, bool includeSelf, List<Component> results)" in content
     assert "private static void CollectComponentsInParent(GameObject gameObject, Type expectedType, bool includeInactive, bool includeSelf, List<Component> results)" in content
+
