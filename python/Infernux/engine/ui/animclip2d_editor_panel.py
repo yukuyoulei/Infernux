@@ -1,11 +1,11 @@
 """
-Animation Clip Editor — visual editor for creating and editing .animclip files.
+2D Animation Clip Editor — visual editor for creating and editing .animclip2d files.
 
 Drag a sprite-sheet texture onto the panel to load it, then click frames to
 build animation sequences.  Supports multiple clips per texture, live
-preview playback, and direct save to .animclip files.
+preview playback, and direct save to .animclip2d files.
 
-Opened from Window menu → Animation Clip Editor.
+Opened from Window menu → 2D Animation Clip Editor.
 """
 
 from __future__ import annotations
@@ -36,8 +36,7 @@ class _ClipState:
     name: str = "NewClip"
     frame_indices: List[int] = field(default_factory=list)
     fps: float = 12.0
-    loop: bool = True
-    saved_path: str = ""          # .animclip file path (empty = unsaved)
+    saved_path: str = ""          # .animclip2d file path (empty = unsaved)
 
 
 @dataclass
@@ -75,15 +74,16 @@ _PLAYBACK_PLAYING = 1
 
 
 @editor_panel(
-    "Animation Clip Editor",
-    type_id="animclip_editor",
-    title_key="panel.animclip_editor",
+    "2D Animation Clip Editor",
+    type_id="animclip2d_editor",
+    title_key="panel.animclip2d_editor",
+    menu_path="Animation",
 )
-class AnimClipEditorPanel(EditorPanel):
-    """Visual editor for building .animclip files from sprite sheets."""
+class AnimClip2DEditorPanel(EditorPanel):
+    """Visual editor for building .animclip2d files from sprite sheets."""
 
     def __init__(self):
-        super().__init__(title="Animation Clip Editor", window_id="animclip_editor")
+        super().__init__(title="2D Animation Clip Editor", window_id="animclip2d_editor")
         self._tex: Optional[_TextureState] = None
         self._clips: List[_ClipState] = [_ClipState()]
         self._active_clip_idx: int = 0
@@ -116,7 +116,7 @@ class AnimClipEditorPanel(EditorPanel):
         for c in self._clips:
             clips_data.append({
                 "name": c.name, "frame_indices": c.frame_indices,
-                "fps": c.fps, "loop": c.loop, "saved_path": c.saved_path,
+                "fps": c.fps, "saved_path": c.saved_path,
             })
         d: dict = {"active_clip": self._active_clip_idx, "clips": clips_data}
         if self._tex:
@@ -135,7 +135,6 @@ class AnimClipEditorPanel(EditorPanel):
                     name=cd.get("name", "NewClip"),
                     frame_indices=list(cd.get("frame_indices", [])),
                     fps=float(cd.get("fps", 12.0)),
-                    loop=bool(cd.get("loop", True)),
                     saved_path=cd.get("saved_path", ""),
                 ))
         if not self._clips:
@@ -147,18 +146,28 @@ class AnimClipEditorPanel(EditorPanel):
     # Render — layout: header -> tabs -> preview/details -> sequence -> palette
     # ------------------------------------------------------------------
 
+    # ImGuiKey / ImGuiMod constants
+    _IMGUI_MOD_CTRL = 1 << 12  # 4096
+    _IMGUI_KEY_S = 564
+
     def on_render_content(self, ctx: InxGUIContext):
+        # Ctrl+S save shortcut
+        if ctx.is_key_down(self._IMGUI_MOD_CTRL) and ctx.is_key_pressed(self._IMGUI_KEY_S):
+            clip = self._active_clip
+            if clip is not None and self._tex is not None and len(clip.frame_indices) > 0:
+                self._save_clip(clip)
+
         avail_w = ctx.get_content_region_avail_width()
         self._render_texture_slot(ctx, avail_w)
         ctx.dummy(0, 8)
 
         if self._tex is None or self._tex.texture_id == 0:
-            self._render_empty_state(ctx, avail_w)
+            self._render_empty_state(ctx)
             return
 
         # Guard against stale texture (e.g. import settings changed externally)
         if not self._validate_texture():
-            self._render_empty_state(ctx, avail_w)
+            self._render_empty_state(ctx)
             return
 
         try:
@@ -193,39 +202,11 @@ class AnimClipEditorPanel(EditorPanel):
         self._cleanup_texture()
         self._tex = None
 
-    def _render_empty_state(self, ctx: InxGUIContext, avail_w: float):
-        empty_h = max(ctx.get_content_region_avail_height(), 220.0)
-        ctx.begin_child("##animclip_empty_state", avail_w, empty_h, True)
-        try:
-            region_w = ctx.get_content_region_avail_width()
-            region_h = ctx.get_content_region_avail_height()
-            zone_w = min(max(region_w - 28.0, 220.0), 460.0)
-            zone_h = min(max(region_h - 36.0, 140.0), 250.0)
-            start_x = ctx.get_cursor_pos_x() + (region_w - zone_w) * 0.5
-            start_y = ctx.get_cursor_pos_y() + (region_h - zone_h) * 0.5
+    def _empty_state_hint(self) -> str:
+        return t("animclip_editor.drop_texture_hint")
 
-            ctx.set_cursor_pos_x(start_x)
-            ctx.set_cursor_pos_y(start_y)
-            ctx.invisible_button("##animclip_drop_zone", zone_w, zone_h)
-
-            bx0 = ctx.get_item_rect_min_x()
-            by0 = ctx.get_item_rect_min_y()
-            bx1 = ctx.get_item_rect_max_x()
-            by1 = ctx.get_item_rect_max_y()
-            ctx.draw_rect(bx0, by0, bx1, by1, 0.55, 0.55, 0.55, 0.55, 2.0, 8.0)
-            ctx.draw_text_aligned(
-                bx0, by0, bx1, by1,
-                t("animclip_editor.drop_texture_hint"),
-                0.72, 0.72, 0.72, 0.95, 0.5, 0.5,
-            )
-            IGUI.multi_drop_target(
-                ctx,
-                ["TEXTURE_FILE", "ANIMCLIP_FILE"],
-                self._on_empty_state_drop,
-                outline=True,
-            )
-        finally:
-            ctx.end_child()
+    def _empty_state_drop_types(self):
+        return ["TEXTURE_FILE", "ANIMCLIP_FILE"]
 
     def _on_empty_state_drop(self, drop_type: str, payload):
         if drop_type == "TEXTURE_FILE":
@@ -327,7 +308,7 @@ class AnimClipEditorPanel(EditorPanel):
         ctx.end_group()
 
     # ------------------------------------------------------------------
-    # Clip info — name, fps, loop, save (compact top bar)
+    # Clip info — name, fps, save (compact top bar)
     # ------------------------------------------------------------------
 
     def _render_clip_info(self, ctx: InxGUIContext, clip: _ClipState, avail_w: float):
@@ -340,6 +321,10 @@ class AnimClipEditorPanel(EditorPanel):
         new_name = ctx.text_input("##clip_name", clip.name, 256)
         if new_name != clip.name:
             clip.name = new_name
+            # Notify FSM editor of clip name change
+            if clip.saved_path:
+                from .event_bus import EditorEventBus
+                EditorEventBus.instance().emit("clip_name_changed", clip.saved_path, new_name)
 
         # Save button on same line as name
         ctx.same_line(0, 16)
@@ -418,7 +403,7 @@ class AnimClipEditorPanel(EditorPanel):
             ctx.label(f"{self._preview_frame_idx + 1}/{fc}")
             ctx.pop_style_color(1)
 
-        # FPS / Loop / duration on the same transport row
+        # FPS / duration — always editable
         fps_label = t("animclip_editor.clip_fps")
         ctx.same_line(0, 16)
         ctx.label(fps_label)
@@ -427,11 +412,6 @@ class AnimClipEditorPanel(EditorPanel):
         new_fps = ctx.drag_float("##clip_fps", clip.fps, 0.1, 0.1, 120.0)
         if new_fps != clip.fps:
             clip.fps = max(0.1, new_fps)
-
-        ctx.same_line(0, 8)
-        new_loop = ctx.checkbox(f"{t('animclip_editor.clip_loop')}##clip_loop", clip.loop)
-        if new_loop != clip.loop:
-            clip.loop = new_loop
 
         dur = fc / max(clip.fps, 0.1)
         ctx.same_line(0, 8)
@@ -469,11 +449,7 @@ class AnimClipEditorPanel(EditorPanel):
                         self._preview_frame_idx += steps
                         self._last_frame_time = now
                         if self._preview_frame_idx >= fc:
-                            if clip.loop:
-                                self._preview_frame_idx = self._preview_frame_idx % fc
-                            else:
-                                self._preview_frame_idx = fc - 1
-                                self._playback = _PLAYBACK_STOPPED
+                            self._preview_frame_idx = self._preview_frame_idx % fc
 
                 self._preview_frame_idx = max(0, min(self._preview_frame_idx, fc - 1))
                 fidx = clip.frame_indices[self._preview_frame_idx]
@@ -688,7 +664,7 @@ class AnimClipEditorPanel(EditorPanel):
             self._load_texture(payload)
 
     def _on_animclip_drop(self, payload):
-        """Handle ANIMCLIP_FILE drop — open an existing .animclip."""
+        """Handle ANIMCLIP_FILE drop — open an existing .animclip2d."""
         if isinstance(payload, str) and payload:
             self._open_animclip(payload)
 
@@ -906,11 +882,11 @@ class AnimClipEditorPanel(EditorPanel):
         return tex.texture_id != 0
 
     # ------------------------------------------------------------------
-    # Open existing .animclip
+    # Open existing .animclip2d
     # ------------------------------------------------------------------
 
     def _open_animclip(self, animclip_path: str):
-        """Load an existing .animclip file into the editor."""
+        """Load an existing .animclip2d file into the editor."""
         from Infernux.core.animation_clip import AnimationClip
         clip_data = AnimationClip.load(animclip_path)
         if clip_data is None:
@@ -919,20 +895,20 @@ class AnimClipEditorPanel(EditorPanel):
 
         # Resolve texture from clip's GUID or path
         tex_resolved = False
-        if clip_data.sprite_texture_guid:
+        if clip_data.authoring_texture_guid:
             try:
                 from Infernux.engine.bootstrap import EditorBootstrap
                 adb = EditorBootstrap.instance().engine.get_asset_database()
                 if adb:
-                    tex_path = adb.get_path_from_guid(clip_data.sprite_texture_guid)
+                    tex_path = adb.get_path_from_guid(clip_data.authoring_texture_guid)
                     if tex_path and os.path.isfile(tex_path):
                         self._load_texture(tex_path)
                         tex_resolved = True
             except Exception:
                 pass
 
-        if not tex_resolved and clip_data.sprite_texture_path:
-            tp = clip_data.sprite_texture_path
+        if not tex_resolved and clip_data.authoring_texture_path:
+            tp = clip_data.authoring_texture_path
             if os.path.isfile(tp):
                 self._load_texture(tp)
             else:
@@ -952,7 +928,6 @@ class AnimClipEditorPanel(EditorPanel):
             name=clip_data.name,
             frame_indices=list(clip_data.frame_indices),
             fps=clip_data.fps,
-            loop=clip_data.loop,
             saved_path=animclip_path,
         )
         self._clips = [cs]
@@ -964,48 +939,26 @@ class AnimClipEditorPanel(EditorPanel):
     # ------------------------------------------------------------------
 
     def _save_clip(self, clip: _ClipState):
-        """Save the active clip as a .animclip file."""
+        """Save the active clip as a .animclip2d file."""
         if clip.saved_path:
             # Already has a path — save directly
             self._do_save_clip(clip, clip.saved_path)
             return
-
-        # Determine initial directory: project panel's current path
-        initial_dir = ""
-        try:
-            from Infernux.engine.bootstrap import EditorBootstrap
-            pp = EditorBootstrap.instance().project_panel
-            if pp:
-                initial_dir = pp.get_current_path()
-        except Exception:
-            pass
-
-        if initial_dir and os.path.isdir(initial_dir):
-            # Save directly into the project panel's current directory
-            safe_name = clip.name.replace(" ", "_").replace("/", "_").replace("\\", "_")
-            save_path = os.path.join(initial_dir, f"{safe_name}.animclip")
-            counter = 1
-            base, ext = os.path.splitext(save_path)
-            while os.path.exists(save_path):
-                save_path = f"{base}_{counter}{ext}"
-                counter += 1
-            self._do_save_clip(clip, save_path)
-        else:
-            # No project panel path — open a Save As dialog
-            self._show_save_as_dialog(clip)
+        # New clip — always open Save As dialog
+        self._show_save_as_dialog(clip)
 
     def _do_save_clip(self, clip: _ClipState, save_path: str):
-        """Write the .animclip file to *save_path*."""
+        """Write the .animclip2d file to *save_path*."""
         from Infernux.core.animation_clip import AnimationClip
         tex = self._tex
 
         ac = AnimationClip(
-            name=clip.name,
-            sprite_texture_guid=tex.guid if tex else "",
-            sprite_texture_path=tex.file_path if tex else "",
+            name=os.path.splitext(os.path.basename(save_path))[0],
+            authoring_texture_guid=tex.guid if tex else "",
+            authoring_texture_path=tex.file_path if tex else "",
             frame_indices=list(clip.frame_indices),
             fps=clip.fps,
-            loop=clip.loop,
+            loop=True,
         )
         ac.file_path = save_path
         ok = ac.save()
@@ -1029,7 +982,7 @@ class AnimClipEditorPanel(EditorPanel):
             initial_dir = "."
 
         safe_name = clip.name.replace(" ", "_").replace("/", "_").replace("\\", "_")
-        default_filename = f"{safe_name}.animclip"
+        default_filename = f"{safe_name}.animclip2d"
 
         def _on_result(result_path):
             if result_path:
@@ -1038,8 +991,15 @@ class AnimClipEditorPanel(EditorPanel):
         def _run():
             result = None
             try:
-                if os.name == "nt":
-                    result = _win32_save_animclip_dialog(initial_dir, default_filename)
+                from ._dialogs import save_file_dialog
+                result = save_file_dialog(
+                    title="Save 2D Animation Clip",
+                    win32_filter="2D AnimClip files (*.animclip2d)\0*.animclip2d\0All files (*.*)\0*.*\0\0",
+                    initial_dir=initial_dir,
+                    default_filename=default_filename,
+                    default_ext="animclip2d",
+                    tk_filetypes=[("2D AnimClip", "*.animclip2d"), ("All Files", "*.*")],
+                )
             except Exception as exc:
                 Debug.log_warning(f"[AnimClipEditor] Save dialog error: {exc}")
             _on_result(result)
@@ -1065,67 +1025,3 @@ class AnimClipEditorPanel(EditorPanel):
         if 0 <= self._active_clip_idx < len(self._clips):
             return self._clips[self._active_clip_idx]
         return None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Win32 Save-As dialog for .animclip
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _win32_save_animclip_dialog(initial_dir: str,
-                                default_filename: str = "NewClip.animclip"):
-    """Use Win32 GetSaveFileNameW to pick a save path for .animclip files."""
-    import ctypes
-    import ctypes.wintypes as wt
-
-    OFN_OVERWRITEPROMPT = 0x00000002
-    OFN_NOCHANGEDIR     = 0x00000008
-    OFN_EXPLORER        = 0x00080000
-    MAX_PATH = 1024
-
-    class OPENFILENAMEW(ctypes.Structure):
-        _fields_ = [
-            ("lStructSize",       wt.DWORD),
-            ("hwndOwner",         wt.HWND),
-            ("hInstance",         wt.HINSTANCE),
-            ("lpstrFilter",       wt.LPCWSTR),
-            ("lpstrCustomFilter", wt.LPWSTR),
-            ("nMaxCustFilter",    wt.DWORD),
-            ("nFilterIndex",      wt.DWORD),
-            ("lpstrFile",         wt.LPWSTR),
-            ("nMaxFile",          wt.DWORD),
-            ("lpstrFileTitle",    wt.LPWSTR),
-            ("nMaxFileTitle",     wt.DWORD),
-            ("lpstrInitialDir",   wt.LPCWSTR),
-            ("lpstrTitle",        wt.LPCWSTR),
-            ("Flags",             wt.DWORD),
-            ("nFileOffset",       wt.WORD),
-            ("nFileExtension",    wt.WORD),
-            ("lpstrDefExt",       wt.LPCWSTR),
-            ("lCustData",         ctypes.POINTER(ctypes.c_long)),
-            ("lpfnHook",          ctypes.c_void_p),
-            ("lpTemplateName",    wt.LPCWSTR),
-            ("pvReserved",        ctypes.c_void_p),
-            ("dwReserved",        wt.DWORD),
-            ("FlagsEx",           wt.DWORD),
-        ]
-
-    for ch in '<>:"/\\|?*':
-        default_filename = default_filename.replace(ch, '_')
-
-    default_target = os.path.join(initial_dir, default_filename)
-
-    buf = ctypes.create_unicode_buffer(MAX_PATH)
-    buf.value = default_target
-    ofn = OPENFILENAMEW()
-    ofn.lStructSize     = ctypes.sizeof(OPENFILENAMEW)
-    ofn.lpstrFilter     = "AnimClip files (*.animclip)\0*.animclip\0All files (*.*)\0*.*\0\0"
-    ofn.lpstrFile       = ctypes.cast(buf, wt.LPWSTR)
-    ofn.nMaxFile        = MAX_PATH
-    ofn.lpstrInitialDir = initial_dir
-    ofn.lpstrTitle      = "保存动画片段 Save Animation Clip"
-    ofn.Flags           = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR | OFN_EXPLORER
-    ofn.lpstrDefExt     = "animclip"
-
-    if ctypes.windll.comdlg32.GetSaveFileNameW(ctypes.byref(ofn)):
-        return buf.value
-    return None

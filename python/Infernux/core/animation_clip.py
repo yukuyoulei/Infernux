@@ -2,12 +2,12 @@
 AnimationClip — data model for a 2D sprite animation clip.
 
 An AnimationClip describes a sequence of sprite frames, playback speed,
-and looping behaviour.  Serialized as ``.animclip`` JSON files.
+and looping behaviour.  Serialized as ``.animclip2d`` JSON files.
 
 Usage::
 
-    clip = AnimationClip.load("Assets/Animations/idle.animclip")
-    clip.save("Assets/Animations/idle.animclip")
+    clip = AnimationClip.load("Assets/Animations/idle.animclip2d")
+    clip.save("Assets/Animations/idle.animclip2d")
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ class AnimationClip:
     """A single animation clip — a sequence of sprite frames with timing."""
 
     name: str = "New Animation Clip"
-    sprite_texture_guid: str = ""
-    sprite_texture_path: str = ""
+    authoring_texture_guid: str = ""
+    authoring_texture_path: str = ""
     frame_indices: List[int] = field(default_factory=list)
     fps: float = 12.0
     loop: bool = True
@@ -35,8 +35,8 @@ class AnimationClip:
     def to_dict(self) -> dict:
         d: dict = {
             "name": self.name,
-            "sprite_texture_guid": self.sprite_texture_guid,
-            "sprite_texture_path": self.sprite_texture_path,
+            "authoring_texture_guid": self.authoring_texture_guid,
+            "authoring_texture_path": self.authoring_texture_path,
             "frame_indices": list(self.frame_indices),
             "fps": self.fps,
             "loop": self.loop,
@@ -47,8 +47,8 @@ class AnimationClip:
     def from_dict(cls, d: dict) -> AnimationClip:
         return cls(
             name=str(d.get("name", "New Animation Clip")),
-            sprite_texture_guid=str(d.get("sprite_texture_guid", "")),
-            sprite_texture_path=str(d.get("sprite_texture_path", "")),
+            authoring_texture_guid=str(d.get("authoring_texture_guid", "")),
+            authoring_texture_path=str(d.get("authoring_texture_path", "")),
             frame_indices=list(d.get("frame_indices", [])),
             fps=float(d.get("fps", 12.0)),
             loop=bool(d.get("loop", True)),
@@ -84,6 +84,8 @@ class AnimationClip:
                 data = json.load(f)
             clip = cls.from_dict(data)
             clip.file_path = path
+            # Name always derives from filename
+            clip.name = os.path.splitext(os.path.basename(path))[0]
             return clip
         except (OSError, json.JSONDecodeError, KeyError, TypeError):
             return None

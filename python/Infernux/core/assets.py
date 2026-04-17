@@ -33,9 +33,11 @@ from Infernux.core.audio_clip import AudioClip
 from Infernux.core.asset_types import (
     IMAGE_EXTENSIONS, SHADER_EXTENSIONS, MATERIAL_EXTENSIONS, AUDIO_EXTENSIONS,
     ANIMCLIP_EXTENSIONS,
+    ANIMFSM_EXTENSIONS,
     asset_category_from_extension,
 )
 from Infernux.core.animation_clip import AnimationClip
+from Infernux.core.anim_state_machine import AnimStateMachine
 
 # ── Constants ──
 _META_SUPPRESSION_TIMEOUT: float = 2.0  # seconds
@@ -237,6 +239,7 @@ class AssetManager:
         cls.register_import_strategy("mesh", write_mesh_import_settings)
         cls.register_save_strategy("material", cls._save_material_resource)
         cls.register_save_strategy("animclip", cls._save_animclip_resource)
+        cls.register_save_strategy("animfsm", cls._save_animfsm_resource)
 
         cls._execution_strategies_initialized = True
 
@@ -341,6 +344,14 @@ class AssetManager:
     @classmethod
     def _save_animclip_resource(cls, resource_obj):
         """Save an AnimationClip resource."""
+        save = getattr(resource_obj, "save", None)
+        if not callable(save):
+            return False
+        return save()
+
+    @classmethod
+    def _save_animfsm_resource(cls, resource_obj):
+        """Save an AnimStateMachine resource."""
         save = getattr(resource_obj, "save", None)
         if not callable(save):
             return False
@@ -469,6 +480,8 @@ class AssetManager:
             return AudioClip
         if ext in ANIMCLIP_EXTENSIONS:
             return AnimationClip
+        if ext in ANIMFSM_EXTENSIONS:
+            return AnimStateMachine
         return None
 
     @classmethod
@@ -487,6 +500,8 @@ class AssetManager:
             return AudioClip.load(path)
         if asset_type is AnimationClip:
             return AnimationClip.load(path)
+        if asset_type is AnimStateMachine:
+            return AnimStateMachine.load(path)
         return None
 
     @classmethod

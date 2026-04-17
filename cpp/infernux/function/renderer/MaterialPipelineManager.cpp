@@ -683,7 +683,7 @@ void MaterialPipelineManager::InvalidateMaterialsUsingShader(const std::string &
 }
 
 uint32_t MaterialPipelineManager::InvalidateMaterialsUsingTexture(const std::string &textureRef,
-                                                                 const std::string &texturePath)
+                                                                  const std::string &texturePath)
 {
     auto normalize = [](std::string value) {
         std::replace(value.begin(), value.end(), '\\', '/');

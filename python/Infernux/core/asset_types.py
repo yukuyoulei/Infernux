@@ -482,7 +482,10 @@ MESH_EXTENSIONS = frozenset({
 PREFAB_EXTENSIONS = frozenset({".prefab"})
 
 # Animation clip extension
-ANIMCLIP_EXTENSIONS = frozenset({".animclip"})
+ANIMCLIP_EXTENSIONS = frozenset({".animclip2d"})
+
+# Animation state machine extension
+ANIMFSM_EXTENSIONS = frozenset({".animfsm"})
 
 
 def asset_category_from_extension(ext: str) -> Optional[str]:
@@ -504,4 +507,6 @@ def asset_category_from_extension(ext: str) -> Optional[str]:
         return "prefab"
     if ext in ANIMCLIP_EXTENSIONS:
         return "animclip"
+    if ext in ANIMFSM_EXTENSIONS:
+        return "animfsm"
     return None

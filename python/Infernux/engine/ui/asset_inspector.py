@@ -277,6 +277,15 @@ def _ensure_categories():
         autosave_debounce=0.5,
     )
 
+    # ── Animation State Machine ────────────────────────────────────────
+    _categories["animfsm"] = AssetCategoryDef(
+        display_name="asset.display_animfsm",
+        access_mode=AssetAccessMode.READ_WRITE_RESOURCE,
+        load_fn=_load_animfsm,
+        custom_body_fn=_render_animfsm_body,
+        autosave_debounce=0.5,
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Per-category loaders
@@ -499,7 +508,7 @@ def _load_animclip(path: str):
 
 def _render_animclip_body(ctx: InxGUIContext, panel, state: _State):
     from Infernux.core.animation_clip import AnimationClip
-    from .inspector_utils import render_compact_section_header, render_inspector_checkbox, render_info_text
+    from .inspector_utils import render_compact_section_header, render_info_text
     from .inspector_components import render_object_field
 
     clip: AnimationClip = state.settings
@@ -507,57 +516,75 @@ def _render_animclip_body(ctx: InxGUIContext, panel, state: _State):
         ctx.label(t("asset.invalid_animclip"))
         return
 
-    changed = False
     labels = [
         t("asset.animclip_name"),
         t("asset.animclip_texture"),
+        t("asset.animclip_preview_texture"),
         t("asset.animclip_fps"),
-        t("asset.animclip_loop"),
         t("asset.animclip_frames"),
     ]
     lw = max_label_w(ctx, labels)
 
     ctx.dummy(0, 4)
 
-    # ── Clip name ──────────────────────────────────────────────
+    # ── Clip name (read-only, derived from filename) ───────────
+    clip_display_name = os.path.splitext(os.path.basename(state.file_path))[0] if state.file_path else clip.name
     field_label(ctx, t("asset.animclip_name"), lw)
-    new_name = ctx.text_input("##animclip_name", clip.name, 256)
-    if new_name != clip.name:
-        clip.name = new_name
-        changed = True
+    ctx.begin_disabled(True)
+    ctx.text_input("##animclip_name", clip_display_name, 256)
+    ctx.end_disabled()
 
-    # ── Sprite texture reference (read-only) ───────────────────
-    tex_path = clip.sprite_texture_path
-    display = "None (Texture)"
-    if tex_path:
-        display = os.path.basename(tex_path)
-    elif clip.sprite_texture_guid:
-        try:
-            from Infernux.engine.bootstrap import EditorBootstrap
-            adb = EditorBootstrap.instance().engine.get_asset_database()
-            path = adb.get_path_from_guid(clip.sprite_texture_guid) if adb else ""
-            if path:
-                display = os.path.basename(path)
-        except Exception:
-            display = clip.sprite_texture_guid[:8] + "…"
+    # ── Authoring texture reference (read-only) ────────────────
+    authoring_path = _resolve_authoring_texture_path(clip)
+    if authoring_path:
+        display = os.path.basename(authoring_path)
+    elif clip.authoring_texture_guid:
+        display = "(missing) " + clip.authoring_texture_guid[:8] + "…"
+    elif clip.authoring_texture_path:
+        display = "(missing) " + os.path.basename(clip.authoring_texture_path)
+    else:
+        display = "None (Texture)"
 
     field_label(ctx, t("asset.animclip_texture"), lw)
     ctx.begin_disabled(True)
     render_object_field(ctx, "##animclip_texture", display, "Texture")
     ctx.end_disabled()
 
-    # ── FPS ────────────────────────────────────────────────────
+    # ── Preview texture override (drag-droppable) ──────────────
+    preview_override = state.extra.get("_animclip_preview_override_path", "")
+    if preview_override:
+        pv_display = os.path.basename(preview_override)
+    else:
+        pv_display = "None (use authoring)"
+
+    field_label(ctx, t("asset.animclip_preview_texture"), lw)
+    render_object_field(ctx, "##animclip_pv_tex", pv_display, "Texture")
+
+    # Accept TEXTURE_FILE drop for preview override
+    from .igui import IGUI
+    def _on_preview_texture_drop(payload):
+        tex_path = str(payload) if payload else ""
+        if tex_path and os.path.isfile(tex_path):
+            state.extra["_animclip_preview_override_path"] = tex_path
+            # Clear cached preview texture so it reloads
+            state.extra.pop("_animclip_pv", None)
+
+    IGUI.drop_target(ctx, "TEXTURE_FILE", _on_preview_texture_drop)
+
+    # Clear button for preview override
+    if preview_override:
+        ctx.same_line(0, 4)
+        def _clear_preview():
+            state.extra.pop("_animclip_preview_override_path", None)
+            state.extra.pop("_animclip_pv", None)
+        ctx.button("X##clear_pv_tex", _clear_preview, width=22, height=22)
+
+    # ── FPS (editable) ─────────────────────────────────────────
+    changed = False
     field_label(ctx, t("asset.animclip_fps"), lw)
     new_fps = ctx.drag_float("##animclip_fps", clip.fps, 0.1, 0.1, 120.0)
     if new_fps != clip.fps:
         clip.fps = max(0.1, new_fps)
-        changed = True
-
-    # ── Loop ───────────────────────────────────────────────────
-    field_label(ctx, t("asset.animclip_loop"), lw)
-    new_loop = render_inspector_checkbox(ctx, "##animclip_loop", clip.loop)
-    if new_loop != clip.loop:
-        clip.loop = new_loop
         changed = True
 
     ctx.separator()
@@ -567,9 +594,8 @@ def _render_animclip_body(ctx: InxGUIContext, panel, state: _State):
 
     ctx.separator()
 
-    # ── Frame indices ──────────────────────────────────────────
+    # ── Frame indices (read-only) ──────────────────────────────
     if render_compact_section_header(ctx, t("asset.animclip_frames")):
-        # Show frame count and duration
         frame_count = clip.frame_count
         duration = clip.duration
         ctx.push_style_color(ImGuiCol.Text, *Theme.META_TEXT)
@@ -579,40 +605,30 @@ def _render_animclip_body(ctx: InxGUIContext, panel, state: _State):
 
         ctx.dummy(0, 4)
 
-        # Editable frame sequence as comma-separated text
         frame_str = ", ".join(str(i) for i in clip.frame_indices)
         field_label(ctx, t("asset.animclip_sequence"), lw)
-        new_frame_str = ctx.text_input("##animclip_frame_seq", frame_str, 2048)
-        if new_frame_str != frame_str:
-            try:
-                new_indices = [int(x.strip()) for x in new_frame_str.split(",") if x.strip()]
-                if new_indices != clip.frame_indices:
-                    clip.frame_indices = new_indices
-                    changed = True
-            except ValueError:
-                pass  # ignore unparseable input, keep old value
-
-        # Quick-fill buttons: sequential range
-        _render_animclip_quickfill(ctx, clip, state)
+        ctx.begin_disabled(True)
+        ctx.text_input("##animclip_frame_seq", frame_str, 2048)
+        ctx.end_disabled()
 
     ctx.separator()
 
-    # ── Auto-save ──────────────────────────────────────────────
+    # ── Auto-save (only FPS changes) ──────────────────────────
     if changed and state.exec_layer:
         clip.file_path = state.file_path
         state.exec_layer.schedule_rw_save(clip)
 
 
-def _resolve_animclip_texture_path(clip) -> str:
-    """Resolve the actual file path for the clip's texture."""
-    if clip.sprite_texture_path and os.path.isfile(clip.sprite_texture_path):
-        return clip.sprite_texture_path
-    if clip.sprite_texture_guid:
+def _resolve_authoring_texture_path(clip) -> str:
+    """Resolve the actual file path for the clip's authoring texture."""
+    if clip.authoring_texture_path and os.path.isfile(clip.authoring_texture_path):
+        return clip.authoring_texture_path
+    if clip.authoring_texture_guid:
         try:
             from Infernux.engine.bootstrap import EditorBootstrap
             adb = EditorBootstrap.instance().engine.get_asset_database()
             if adb:
-                p = adb.get_path_from_guid(clip.sprite_texture_guid)
+                p = adb.get_path_from_guid(clip.authoring_texture_guid)
                 if p and os.path.isfile(p):
                     return p
         except Exception:
@@ -690,8 +706,20 @@ def _render_animclip_preview(ctx: InxGUIContext, clip, state: _State):
     """Render an animated preview of the animation clip in the inspector."""
     import time as _time
 
-    tex_file = _resolve_animclip_texture_path(clip)
-    if not tex_file or not clip.frame_indices:
+    # Use preview override if set, otherwise fall back to authoring texture
+    preview_override = state.extra.get("_animclip_preview_override_path", "")
+    if preview_override and os.path.isfile(preview_override):
+        tex_file = preview_override
+    else:
+        tex_file = _resolve_authoring_texture_path(clip)
+
+    if not tex_file:
+        from .inspector_utils import render_info_text
+        if clip.authoring_texture_guid or clip.authoring_texture_path:
+            render_info_text(ctx, t("asset.animclip_texture_missing"))
+        return
+
+    if not clip.frame_indices:
         return
 
     if not _ensure_animclip_preview_texture(state, tex_file):
@@ -740,11 +768,7 @@ def _render_animclip_preview(ctx: InxGUIContext, clip, state: _State):
             pb["frame_idx"] += steps
             pb["last_time"] = now
             if pb["frame_idx"] >= fc:
-                if clip.loop:
-                    pb["frame_idx"] = pb["frame_idx"] % fc
-                else:
-                    pb["frame_idx"] = fc - 1
-                    pb["playing"] = False
+                pb["frame_idx"] = pb["frame_idx"] % fc
 
     fi = max(0, min(pb["frame_idx"], fc - 1))
     src_idx = clip.frame_indices[fi]
@@ -782,7 +806,7 @@ def _render_animclip_quickfill(ctx: InxGUIContext, clip, state: _State):
 
     # Try to get frame count from the referenced texture's sprite_frames
     sprite_frame_count = _get_sprite_frame_count(
-        clip.sprite_texture_guid, clip.sprite_texture_path)
+        clip.authoring_texture_guid, clip.authoring_texture_path)
 
     ctx.dummy(0, 2)
     if sprite_frame_count > 0:
@@ -832,6 +856,71 @@ def _get_sprite_frame_count(texture_guid: str, texture_path: str = "") -> int:
     except Exception:
         return 0
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Animation State Machine inspector
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _load_animfsm(path: str):
+    from Infernux.core.anim_state_machine import AnimStateMachine
+    fsm = AnimStateMachine.load(path)
+    if fsm is None:
+        return None
+    return fsm, {"fsm_path": path}
+
+
+def _render_animfsm_body(ctx: InxGUIContext, panel, state: _State):
+    from Infernux.core.anim_state_machine import AnimStateMachine
+    from .inspector_utils import render_compact_section_header, field_label
+
+    fsm: AnimStateMachine = state.settings
+    if not isinstance(fsm, AnimStateMachine):
+        ctx.label(t("asset.invalid_animfsm"))
+        return
+
+    lw = 120.0
+
+    # Name (read-only)
+    field_label(ctx, t("animfsm_editor.name"), lw)
+    ctx.same_line()
+    ctx.label(fsm.name)
+
+    # Default state
+    field_label(ctx, t("asset.animfsm_default_state"), lw)
+    ctx.same_line()
+    ctx.label(fsm.default_state or "—")
+
+    # States section
+    if render_compact_section_header(ctx, t("animfsm_editor.states").format(count=fsm.state_count)):
+        for s in fsm.states:
+            is_default = (s.name == fsm.default_state)
+            prefix = "► " if is_default else "  "
+            ctx.label(f"{prefix}{s.name}")
+            clip_path = ""
+            if s.clip_guid:
+                try:
+                    from Infernux.engine.bootstrap import EditorBootstrap
+                    bs = EditorBootstrap.instance()
+                    adb = bs.engine.get_asset_database() if bs and bs.engine else None
+                    if adb:
+                        clip_path = adb.get_path_from_guid(s.clip_guid) or ""
+                except Exception:
+                    pass
+            if not clip_path:
+                clip_path = s.clip_path
+            if clip_path:
+                ctx.same_line()
+                ctx.label(f"  [{os.path.basename(clip_path)}]")
+            for tr in s.transitions:
+                ctx.label(f"      → {tr.target_state}")
+                if tr.condition:
+                    ctx.same_line()
+                    ctx.label(f"  ({tr.condition})")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Material inspector
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _refresh_material(state: _State):
     native = state.extra.get("native_mat")

@@ -1309,7 +1309,7 @@ void InxRenderer::QueueDockTabSelection(const char *windowId)
 }
 
 uint64_t InxRenderer::UploadTextureForImGui(const std::string &name, const unsigned char *pixels, int width, int height,
-                                             VkFilter filter)
+                                            VkFilter filter)
 {
     if (m_gui) {
         return m_gui->UploadTextureForImGui(name, pixels, width, height, filter);
