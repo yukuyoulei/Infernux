@@ -27,6 +27,33 @@ def infer_project_name(project_dir: str, project_name: str = "") -> str:
     return os.path.basename(os.path.abspath(project_dir)) or "GameScript"
 
 
+def default_script_class_name(project_name: str) -> str:
+    class_name = sanitize_csharp_identifier(project_name)
+    reserved = {
+        "Infernux",
+        "Object",
+        "Component",
+        "Behaviour",
+        "MonoBehaviour",
+        "GameObject",
+        "Transform",
+        "Camera",
+        "Debug",
+        "Mathf",
+        "Random",
+        "Color",
+        "Color32",
+        "Vector2",
+        "Vector3",
+        "Quaternion",
+        "Ray",
+        "Matrix4x4",
+    }
+    if class_name in reserved:
+        class_name = f"{class_name}Main"
+    return class_name
+
+
 def _build_csproj_content() -> str:
     return """<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -5116,7 +5143,7 @@ namespace Infernux.Managed
 
 
 def _build_default_script_content(project_name: str) -> str:
-    script_class_name = sanitize_csharp_identifier(project_name)
+    script_class_name = default_script_class_name(project_name)
     return f"""using Infernux;
 
 public sealed class {script_class_name} : MonoBehaviour
